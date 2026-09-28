@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SnipLingo 设置</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div class="app-layout">
+      <!-- 左侧边栏导航 (Sidebar) -->
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-logo">
+            <img src="/src/assets/logo.png" alt="SnipLingo" width="24" height="24" style="border-radius: 6px; display: block;" />
+          </div>
+          <div class="brand-info">
+            <div class="brand-title">SnipLingo</div>
+            <div class="brand-version">v0.1.0</div>
+          </div>
+        </div>
+
+        <nav class="nav-menu">
+          <button id="tab-btn-general" class="nav-item active" data-tab="panel-general">
+            <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
+              <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <span data-i18n="nav.general">常规</span>
+          </button>
+
+          <button id="tab-btn-capture" class="nav-item" data-tab="panel-capture">
+            <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M6 2v14a2 2 0 0 0 2 2h14"/>
+              <path d="M18 22V8a2 2 0 0 0-2-2H2"/>
+            </svg>
+            <span data-i18n="nav.capture">截屏</span>
+          </button>
+
+          <button id="tab-btn-pin" class="nav-item" data-tab="panel-pin">
+            <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 17v5"/>
+              <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>
+            </svg>
+            <span data-i18n="nav.pin">贴图</span>
+          </button>
+
+          <button id="tab-btn-hotkeys" class="nav-item" data-tab="panel-hotkeys">
+            <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect width="20" height="16" x="2" y="4" rx="2"/>
+              <path d="M6 8h.001"/>
+              <path d="M10 8h.001"/>
+              <path d="M14 8h.001"/>
+              <path d="M18 8h.001"/>
+              <path d="M6 12h.001"/>
+              <path d="M18 12h.001"/>
+              <path d="M10 12h4"/>
+            </svg>
+            <span data-i18n="nav.hotkeys">快捷键</span>
+          </button>
+
+          <button id="tab-btn-translation" class="nav-item" data-tab="panel-translation">
+            <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/>
+              <path d="M2 12h20"/>
+            </svg>
+            <span data-i18n="nav.translation">翻译</span>
+          </button>
+
+          <button id="tab-btn-ocr" class="nav-item" data-tab="panel-ocr">
+            <svg class="nav-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4 7V4h3"/>
+              <path d="M20 7V4h-3"/>
+              <path d="M4 17v3h3"/>
+              <path d="M20 17v3h-3"/>
+              <path d="M9 10h6"/>
+              <path d="M12 10v7"/>
+            </svg>
+            <span data-i18n="nav.ocr">OCR设置</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="status-pill">
+            <span class="status-dot"></span>
+            <span data-i18n="status.running">后台常驻中</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- 右侧主内容区 (Main Content) -->
+      <main class="content-area">
+        <!-- 1. 常规面板 (General) -->
+        <section id="panel-general" class="tab-panel active">
+          <div class="panel-content">
+            <header class="panel-header">
+              <h2 data-i18n="header.general.title">常规设置</h2>
+            </header>
+
+            <div class="settings-card">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="app-language-select" data-i18n="label.language">显示语言</label>
+                </div>
+                <div class="setting-ctrl">
+                  <select id="app-language-select" class="form-select">
+                    <option value="zh-CN">简体中文 (Chinese Simplified)</option>
+                    <option value="en">English (US)</option>
+                    <option value="zh-TW">繁體中文 (Chinese Traditional)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="auto-start-checkbox" data-i18n="label.autostart">开机启动</label>
+                </div>
+                <div class="setting-ctrl">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="auto-start-checkbox" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="silent-start-checkbox" data-i18n="label.silent_start">静默启动</label>
+                  <p data-i18n="desc.silent_start">启动后直接最小化至系统托盘，不弹出主窗口</p>
+                </div>
+                <div class="setting-ctrl">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="silent-start-checkbox" checked />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <footer class="panel-footer">
+            <div class="panel-footer-left">
+              <span id="save-status-general" class="save-status hidden" data-i18n="status.saved">已保存设置</span>
+            </div>
+            <div class="panel-footer-right">
+              <button id="btn-reset-general" type="button" class="btn btn-secondary" data-i18n="btn.reset_default">恢复默认设置</button>
+            </div>
+          </footer>
+        </section>
+
+        <!-- 2. 截屏面板 (Capture) -->
+        <section id="panel-capture" class="tab-panel">
+          <div class="panel-content">
+            <header class="panel-header">
+              <h2 data-i18n="header.capture.title">截屏设置</h2>
+            </header>
+
+            <div class="section-title" data-i18n="section.actions">选区动作快捷键</div>
+            <div class="settings-card">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="action-copy-input" data-i18n="label.action_copy">复制</label>
+                </div>
+                <div class="setting-ctrl">
+                  <div class="key-recorder-group">
+                    <input
+                      id="action-copy-input"
+                      type="text"
+                      class="key-recorder-input"
+                      value="Ctrl+C"
+                      readonly
+                    />
+                    <button id="btn-reset-action-copy" type="button" class="btn-icon" title="恢复默认 (Ctrl+C)">↺</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="action-ocr-input" data-i18n="label.action_ocr">获取文本</label>
+                </div>
+                <div class="setting-ctrl">
+                  <div class="key-recorder-group">
+                    <input
+                      id="action-ocr-input"
+                      type="text"
+                      class="key-recorder-input"
+                      value="Ctrl+T"
+                      readonly
+                    />
+                    <button id="btn-reset-action-ocr" type="button" class="btn-icon" title="恢复默认 (Ctrl+T)">↺</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="action-translate-input" data-i18n="label.action_translate">翻译</label>
+                </div>
+                <div class="setting-ctrl">
+                  <div class="key-recorder-group">
+                    <input
+                      id="action-translate-input"
+                      type="text"
+                      class="key-recorder-input"
+                      value="Ctrl+S"
+                      readonly
+                    />
+                    <button id="btn-reset-action-translate" type="button" class="btn-icon" title="恢复默认 (Ctrl+S)">↺</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="action-pin-input" data-i18n="label.action_pin">钉住选区</label>
+                </div>
+                <div class="setting-ctrl">
+                  <div class="key-recorder-group">
+                    <input
+                      id="action-pin-input"
+                      type="text"
+                      class="key-recorder-input"
+                      value="Ctrl+P"
+                      readonly
+                    />
+                    <button id="btn-reset-action-pin" type="button" class="btn-icon" title="恢复默认 (Ctrl+P)">↺</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <footer class="panel-footer">
+            <div class="panel-footer-left">
+              <span id="save-status-capture" class="save-status hidden" data-i18n="status.saved">已保存设置</span>
+            </div>
+            <div class="panel-footer-right">
+              <button id="btn-reset-capture" type="button" class="btn btn-secondary" data-i18n="btn.reset_default">恢复默认设置</button>
+            </div>
+          </footer>
+        </section>
+
+        <!-- 3. 贴图面板 (Pin) -->
+        <section id="panel-pin" class="tab-panel">
+          <div class="panel-content">
+            <header class="panel-header">
+              <h2 data-i18n="header.pin.title">桌面贴图设置</h2>
+            </header>
+
+            <div class="settings-card">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="pin-shadow-checkbox" data-i18n="label.pin_shadow">贴图边框</label>
+                </div>
+                <div class="setting-ctrl">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="pin-shadow-checkbox" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="pin-opacity-slider" data-i18n="label.pin_opacity">贴图不透明度</label>
+                </div>
+                <div class="setting-ctrl range-ctrl">
+                  <input
+                    id="pin-opacity-slider"
+                    type="range"
+                    class="form-range"
+                    min="10"
+                    max="100"
+                    step="5"
+                    value="100"
+                  />
+                  <span id="pin-opacity-badge" class="badge-value">100%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <footer class="panel-footer">
+            <div class="panel-footer-left">
+              <span id="save-status-pin" class="save-status hidden" data-i18n="status.saved">已保存设置</span>
+            </div>
+            <div class="panel-footer-right">
+              <button id="btn-reset-pin" type="button" class="btn btn-secondary" data-i18n="btn.reset_default">恢复默认设置</button>
+            </div>
+          </footer>
+        </section>
+
+        <!-- 4. 快捷键面板 (Hotkeys) -->
+        <section id="panel-hotkeys" class="tab-panel">
+          <div class="panel-content">
+            <header class="panel-header">
+              <h2 data-i18n="header.hotkeys.title">快捷键管理</h2>
+            </header>
+
+            <div class="section-title" data-i18n="section.global_hotkeys">全局快捷键</div>
+            <div class="settings-card">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="hotkey-input" data-i18n="label.hotkey">截图唤起快捷键</label>
+                </div>
+                <div class="setting-ctrl">
+                  <div class="key-recorder-group">
+                    <input
+                      id="hotkey-input"
+                      type="text"
+                      class="key-recorder-input"
+                      placeholder="点击录制快捷键 (如 F4)"
+                      readonly
+                    />
+                    <button id="btn-reset-hotkey" type="button" class="btn-icon" title="恢复默认 (F4)">↺</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <footer class="panel-footer">
+            <div class="panel-footer-left">
+              <span id="save-status-hotkeys" class="save-status hidden" data-i18n="status.saved">已保存设置</span>
+            </div>
+            <div class="panel-footer-right">
+              <button id="btn-reset-hotkeys" type="button" class="btn btn-secondary" data-i18n="btn.reset_default">恢复默认设置</button>
+            </div>
+          </footer>
+        </section>
+
+        <!-- 5. 翻译面板 (Translation) -->
+        <section id="panel-translation" class="tab-panel">
+          <div class="panel-content">
+            <header class="panel-header">
+              <h2 data-i18n="header.translation.title">翻译设置</h2>
+            </header>
+
+            <div class="section-title" data-i18n="section.trans_basic">基础设置</div>
+            <div class="settings-card">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="source-lang-select" data-i18n="label.source_lang">原文语言</label>
+                </div>
+                <div class="setting-ctrl">
+                  <select id="source-lang-select" class="form-select">
+                    <option value="auto" data-i18n="lang.auto">自动检测</option>
+                    <option value="zh-CN" data-i18n="lang.zh_cn">简体中文 (Simplified Chinese)</option>
+                    <option value="zh-TW" data-i18n="lang.zh_tw">繁体中文 (Traditional Chinese)</option>
+                    <option value="en" data-i18n="lang.en">英语 (English)</option>
+                    <option value="ja" data-i18n="lang.ja">日语 (Japanese)</option>
+                    <option value="ko" data-i18n="lang.ko">韩语 (Korean)</option>
+                    <option value="fr" data-i18n="lang.fr">法语 (French)</option>
+                    <option value="de" data-i18n="lang.de">德语 (German)</option>
+                    <option value="es" data-i18n="lang.es">西班牙语 (Spanish)</option>
+                    <option value="ru" data-i18n="lang.ru">俄语 (Russian)</option>
+                    <option value="it" data-i18n="lang.it">意大利语 (Italian)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="target-lang-select" data-i18n="label.target_lang">译文语言</label>
+                </div>
+                <div class="setting-ctrl">
+                  <select id="target-lang-select" class="form-select">
+                    <option value="zh-CN" data-i18n="lang.zh_cn">简体中文 (Simplified Chinese)</option>
+                    <option value="zh-TW" data-i18n="lang.zh_tw">繁体中文 (Traditional Chinese)</option>
+                    <option value="en" data-i18n="lang.en">英语 (English)</option>
+                    <option value="ja" data-i18n="lang.ja">日语 (Japanese)</option>
+                    <option value="ko" data-i18n="lang.ko">韩语 (Korean)</option>
+                    <option value="fr" data-i18n="lang.fr">法语 (French)</option>
+                    <option value="de" data-i18n="lang.de">德语 (German)</option>
+                    <option value="es" data-i18n="lang.es">西班牙语 (Spanish)</option>
+                    <option value="ru" data-i18n="lang.ru">俄语 (Russian)</option>
+                    <option value="it" data-i18n="lang.it">意大利语 (Italian)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="in-place-translate-checkbox" data-i18n="label.in_place_translate">截图直接显示译文</label>
+                </div>
+                <div class="setting-ctrl">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="in-place-translate-checkbox" checked />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-title" data-i18n="section.trans_engine">翻译引擎配置</div>
+            <div class="settings-card">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="provider-select" data-i18n="label.provider">服务提供商</label>
+                </div>
+                <div class="setting-ctrl">
+                  <select id="provider-select" class="form-select">
+                    <option value="google">谷歌翻译 (免配置 Key · 开箱即用)</option>
+                    <option value="baidu">百度翻译 (开放平台 · 国内直连)</option>
+                    <option value="openai">OpenAI 兼容接口 (DeepSeek / OpenAI 等)</option>
+                    <option value="deepl">DeepL 翻译 (Free / Pro)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- 百度翻译专属 -->
+              <div id="baidu-fields" class="hidden">
+                <div class="setting-divider"></div>
+                <div class="setting-row">
+                  <div class="setting-info">
+                    <label for="baidu-appid-input" data-i18n="label.baidu_appid">百度 App ID</label>
+                    <p data-i18n="desc.baidu_appid">登录百度翻译开放平台开发者页获取</p>
+                  </div>
+                  <div class="setting-ctrl">
+                    <input id="baidu-appid-input" type="text" class="form-text-input" placeholder="填入百度翻译 App ID" />
+                  </div>
+                </div>
+                <div class="setting-divider"></div>
+                <div class="setting-row">
+                  <div class="setting-info">
+                    <label for="baidu-secret-input" data-i18n="label.baidu_secret">密钥 (Secret Key)</label>
+                    <p data-i18n="desc.baidu_secret">百度翻译开放平台的开发者密钥</p>
+                  </div>
+                  <div class="setting-ctrl">
+                    <div class="input-with-button">
+                      <input id="baidu-secret-input" type="password" class="form-text-input" placeholder="填入密钥" autocomplete="off" />
+                      <button id="btn-toggle-baidu-secret" type="button" class="btn-icon">👁</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 通用 Key (OpenAI / DeepL) -->
+              <div id="generic-key-item" class="hidden">
+                <div class="setting-divider"></div>
+                <div class="setting-row">
+                  <div class="setting-info">
+                    <label id="api-key-label" for="api-key-input">API Key</label>
+                  </div>
+                  <div class="setting-ctrl">
+                    <div class="input-with-button">
+                      <input id="api-key-input" type="password" class="form-text-input" placeholder="sk-..." autocomplete="off" />
+                      <button id="btn-toggle-key" type="button" class="btn-icon">👁</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- OpenAI 兼容配置 -->
+              <div id="openai-extra-fields" class="hidden">
+                <div class="setting-divider"></div>
+                <div class="setting-row">
+                  <div class="setting-info">
+                    <label for="base-url-input" data-i18n="label.base_url">API 接口地址 (Base URL)</label>
+                  </div>
+                  <div class="setting-ctrl">
+                    <input id="base-url-input" type="text" class="form-text-input" placeholder="https://api.openai.com/v1" />
+                  </div>
+                </div>
+                <div class="setting-divider"></div>
+                <div class="setting-row">
+                  <div class="setting-info">
+                    <label for="model-input" data-i18n="label.model">模型名称 (Model)</label>
+                  </div>
+                  <div class="setting-ctrl">
+                    <input id="model-input" type="text" class="form-text-input" placeholder="gpt-4o-mini" />
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+              <div class="setting-footer-actions">
+                <button id="btn-test-api" type="button" class="btn btn-secondary">
+                  <span data-i18n="btn.test_api">一键测试连接</span>
+                </button>
+                <div id="test-result-box" class="test-result-box hidden"></div>
+              </div>
+            </div>
+          </div>
+
+          <footer class="panel-footer">
+            <div class="panel-footer-left">
+              <span id="save-status-translation" class="save-status hidden" data-i18n="status.saved">已保存设置</span>
+            </div>
+            <div class="panel-footer-right">
+              <button id="btn-reset-translation" type="button" class="btn btn-secondary" data-i18n="btn.reset_default">恢复默认设置</button>
+            </div>
+          </footer>
+        </section>
+
+        <!-- 6. OCR 设置面板 (OCR) -->
+        <section id="panel-ocr" class="tab-panel">
+          <div class="panel-content">
+            <header class="panel-header">
+              <h2 data-i18n="header.ocr.title">OCR 文字识别设置</h2>
+            </header>
+
+            <div class="section-title" data-i18n="section.ocr_format">文字识别与格式优化</div>
+            <div class="settings-card">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="ocr-engine-select" data-i18n="label.ocr_engine">OCR 识别引擎</label>
+                </div>
+                <div class="setting-ctrl">
+                  <select id="ocr-engine-select" class="form-select">
+                    <option value="windows" data-i18n="ocr.engine_windows">Windows Media OCR</option>
+                    <option value="paddleocr" data-i18n="ocr.engine_paddle">PaddleOCR</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="ocr-lang-select" data-i18n="label.ocr_lang">优先识别语言</label>
+                </div>
+                <div class="setting-ctrl">
+                  <select id="ocr-lang-select" class="form-select">
+                    <option value="auto">自动匹配系统语言 (推荐)</option>
+                    <option value="zh-Hans">简体中文 (Chinese Simplified)</option>
+                    <option value="en">英文 (English)</option>
+                    <option value="ja">日文 (Japanese)</option>
+                    <option value="ko">韩文 (Korean)</option>
+                    <option value="zh-Hant">繁体中文 (Chinese Traditional)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="preserve-line-breaks-checkbox" data-i18n="label.preserve_breaks">保持代码与排版换行</label>
+                </div>
+                <div class="setting-ctrl">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="preserve-line-breaks-checkbox" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="enhance-contrast-checkbox" data-i18n="label.enhance_contrast">暗色主题与低对比度增强</label>
+                </div>
+                <div class="setting-ctrl">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="enhance-contrast-checkbox" />
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <footer class="panel-footer">
+            <div class="panel-footer-left">
+              <span id="save-status-ocr" class="save-status hidden" data-i18n="status.saved">已保存设置</span>
+            </div>
+            <div class="panel-footer-right">
+              <button id="btn-reset-ocr" type="button" class="btn btn-secondary" data-i18n="btn.reset_default">恢复默认设置</button>
+            </div>
+          </footer>
+        </section>
+      </main>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

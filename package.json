@@ -1,0 +1,37 @@
+{
+  "name": "sniplingo",
+  "version": "0.1.0",
+  "description": "SnipLingo Desktop Screenshot & Translation Assistant",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "tauri": "tauri"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c12hua/SnipLingo.git"
+  },
+  "keywords": [
+    "tauri",
+    "screenshot",
+    "ocr",
+    "translation",
+    "desktop",
+    "windows"
+  ],
+  "author": "SnipLingo Team",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/c12hua/SnipLingo/issues"
+  },
+  "homepage": "https://github.com/c12hua/SnipLingo#readme",
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.5",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.11.1"
+  }
+}

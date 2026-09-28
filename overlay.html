@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SnipLingo Capture Overlay</title>
+    <link rel="stylesheet" href="/src/overlay/overlay.css" />
+  </head>
+  <body>
+    <div id="capture-container">
+      <div id="mask-layer"></div>
+      <div id="esc-hint-pill">
+        <span>按 ESC 或 鼠标右键 退出截图</span>
+        <button id="btn-force-exit" title="立即退出截图 (ESC / 右键)">✕</button>
+      </div>
+      <div id="selection-box" class="hidden">
+        <div id="dimension-badge">0 × 0 px</div>
+        <div id="translation-layer" class="hidden"></div>
+        <div class="resize-handle nw" data-handle="nw"></div>
+        <div class="resize-handle n" data-handle="n"></div>
+        <div class="resize-handle ne" data-handle="ne"></div>
+        <div class="resize-handle e" data-handle="e"></div>
+        <div class="resize-handle se" data-handle="se"></div>
+        <div class="resize-handle s" data-handle="s"></div>
+        <div class="resize-handle sw" data-handle="sw"></div>
+        <div class="resize-handle w" data-handle="w"></div>
+      </div>
+      <div id="toolbar" class="hidden">
+        <!-- 截屏常规选区操作工具条 -->
+        <div id="toolbar-normal" class="tb-group">
+          <button id="btn-copy" class="tb-btn" title="复制 (Ctrl+C)">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="复制">
+              <rect x="4" y="3" width="13" height="15" rx="2"/>
+              <path d="M8 18v1a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-1"/>
+            </svg>
+          </button>
+          <button id="btn-ocr" class="tb-btn" title="获取文本 (Ctrl+T)">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="获取文本">
+              <path d="M4 9V6a2 2 0 0 1 2-2h3m6 0h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3m-6 0H6a2 2 0 0 1-2-2v-3"/>
+              <text x="12" y="15.6" text-anchor="middle" font-size="12" font-family="Arial,system-ui,sans-serif" font-weight="500" fill="currentColor" stroke="none">a</text>
+            </svg>
+          </button>
+          <button id="btn-pin" class="tb-btn" title="钉住 (Ctrl+P)">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="钉住">
+              <path d="M8 4h8c1.2 0 1.5 1.5.6 2.2l-1.9 1.5.7 4.1 2.3 2.8a1.4 1.4 0 0 1-1.1 2.3H7.4a1.4 1.4 0 0 1-1.1-2.3l2.3-2.8.7-4.1-1.9-1.5C6.5 5.5 6.8 4 8 4Z"/>
+              <path d="M12 17v4"/>
+            </svg>
+          </button>
+          <button id="btn-translate" class="tb-btn" title="翻译 (Ctrl+S / 回车)">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="翻译">
+              <circle cx="12" cy="12" r="8.5"/>
+              <path d="M3.7 12h16.6M12 3.5c-2.4 2.2-3.5 5-3.5 8.5s1.1 6.3 3.5 8.5c2.4-2.2 3.5-5 3.5-8.5s-1.1-6.3-3.5-8.5Z"/>
+            </svg>
+          </button>
+          <button id="btn-save" class="tb-btn" title="保存截图">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="保存">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11.5a1 1 0 0 1 .7.3l3.5 3.5a1 1 0 0 1 .3.7V19a2 2 0 0 1-2 2z"/>
+              <path d="M7.5 7.5h4"/>
+              <path d="M8.5 21v-4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v4"/>
+            </svg>
+          </button>
+          <button id="btn-cancel" class="tb-btn danger" title="取消 (ESC)">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="取消">
+              <path d="M6.5 6.5 17.5 17.5M17.5 6.5 6.5 17.5"/>
+            </svg>
+          </button>
+        </div>
+        <!-- 截屏译文操作工具条 (类似微信截图翻译) -->
+        <div id="toolbar-translate" class="tb-group hidden">
+          <button id="btn-toggle-view" class="tb-btn" title="切换显示原图 / 译图">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="原图 / 译图切换">
+              <path d="M4 8h15m0 0-3-3m3 3-3 3"/>
+              <path d="M20 16H5m0 0 3-3m-3 3 3 3"/>
+            </svg>
+          </button>
+          <button id="btn-copy-trans-img" class="tb-btn" title="复制覆盖译文后的图片 (Ctrl+C)">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="复制译图">
+              <path d="M8.5 5H18a2 2 0 0 1 2 2v9"/>
+              <rect x="4" y="8" width="13" height="12" rx="2"/>
+              <text x="10.5" y="16.6" text-anchor="middle" font-size="8.2" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-weight="600" fill="currentColor" stroke="none">译</text>
+            </svg>
+          </button>
+          <button id="btn-copy-orig-img" class="tb-btn" title="复制未翻译的原图选区 (Ctrl+Shift+C / 切换原图后 Ctrl+C)">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="复制原图">
+              <path d="M8.5 5H18a2 2 0 0 1 2 2v9"/>
+              <rect x="4" y="8" width="13" height="12" rx="2"/>
+              <text x="10.5" y="16.6" text-anchor="middle" font-size="8.2" font-family="Microsoft YaHei,PingFang SC,sans-serif" font-weight="600" fill="currentColor" stroke="none">原</text>
+            </svg>
+          </button>
+          <button id="btn-copy-trans-text" class="tb-btn" title="复制文本内容">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="获取文本">
+              <path d="M4 9V6a2 2 0 0 1 2-2h3m6 0h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3m-6 0H6a2 2 0 0 1-2-2v-3"/>
+              <text x="12" y="15.6" text-anchor="middle" font-size="12" font-family="Arial,system-ui,sans-serif" font-weight="500" fill="currentColor" stroke="none">a</text>
+            </svg>
+          </button>
+          <button id="btn-trans-pin" class="tb-btn" title="将当前选区钉在桌面">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="钉住">
+              <path d="M8 4h8c1.2 0 1.5 1.5.6 2.2l-1.9 1.5.7 4.1 2.3 2.8a1.4 1.4 0 0 1-1.1 2.3H7.4a1.4 1.4 0 0 1-1.1-2.3l2.3-2.8.7-4.1-1.9-1.5C6.5 5.5 6.8 4 8 4Z"/>
+              <path d="M12 17v4"/>
+            </svg>
+          </button>
+          <button id="btn-trans-save" class="tb-btn" title="保存当前图片">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="保存">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11.5a1 1 0 0 1 .7.3l3.5 3.5a1 1 0 0 1 .3.7V19a2 2 0 0 1-2 2z"/>
+              <path d="M7.5 7.5h4"/>
+              <path d="M8.5 21v-4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v4"/>
+            </svg>
+          </button>
+          <button id="btn-trans-cancel" class="tb-btn danger" title="完成并退出 (ESC)">
+            <svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="退出">
+              <path d="M6.5 6.5 17.5 17.5M17.5 6.5 6.5 17.5"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id="selection-copy-bubble" class="hidden">
+        <button id="btn-bubble-copy" title="复制选中文本 (Ctrl+C)">复制</button>
+      </div>
+      <div id="toast" class="toast hidden"></div>
+    </div>
+    <script type="module" src="/src/overlay/overlay.ts"></script>
+  </body>
+</html>

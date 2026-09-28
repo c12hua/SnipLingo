@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>对照翻译</title>
+    <link rel="stylesheet" href="/src/result/result.css" />
+  </head>
+  <body>
+    <div id="result-card">
+      <!-- 拖拽与标题栏 -->
+      <div id="header-bar" data-tauri-drag-region>
+        <div class="header-title" data-tauri-drag-region>
+          <img class="header-logo" src="/src/assets/logo.png" alt="SnipLingo" width="16" height="16" />
+          <span id="header-title-text">对照翻译</span>
+        </div>
+        <div class="header-actions">
+          <div class="zoom-controls">
+            <button id="btn-zoom-out" class="zoom-btn" title="缩小字号 (Ctrl+滚轮下)">A-</button>
+            <span id="zoom-level-text" class="zoom-badge" title="点击恢复 100% 字号">100%</span>
+            <button id="btn-zoom-in" class="zoom-btn" title="放大字号 (Ctrl+滚轮上)">A+</button>
+          </div>
+          <button id="btn-close" class="action-btn" title="关闭窗口 (ESC)">✕</button>
+        </div>
+      </div>
+
+      <!-- 加载中状态 -->
+      <div id="loading-state" class="state-container">
+        <div class="spinner"></div>
+        <p id="loading-text" class="loading-text">正在识别文字并翻译中...</p>
+      </div>
+
+      <!-- 成功状态：对照视图 -->
+      <div id="success-state" class="state-container hidden">
+        <div class="section-group">
+          <div class="section-header">
+            <span id="section-title-orig" class="section-title">原文</span>
+            <div class="header-btn-group">
+              <button id="btn-toggle-breaks" class="copy-small-btn" title="点击切换：保持换行 / 合并段落">换行</button>
+              <button id="btn-copy-original" class="copy-small-btn" title="复制原文">复制</button>
+            </div>
+          </div>
+          <div id="original-text" class="text-box original" tabindex="0"></div>
+        </div>
+
+        <div class="section-group">
+          <div class="section-header">
+            <span id="section-title-trans" class="section-title">译文</span>
+            <button id="btn-copy-translation" class="copy-btn" title="复制译文">
+              <span id="copy-btn-text">复制译文</span>
+            </button>
+          </div>
+          <div id="translated-text" class="text-box translation" tabindex="0"></div>
+        </div>
+      </div>
+
+      <!-- 错误状态视图 (根据 4 种错误类型动态渲染) -->
+      <div id="error-state" class="state-container hidden">
+        <h3 id="error-title">提示</h3>
+        <p id="error-desc" class="error-detail"></p>
+        <div class="error-actions">
+          <button id="btn-error-action" class="primary-btn">前往配置</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/result/result.ts"></script>
+  </body>
+</html>

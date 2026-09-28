@@ -1,0 +1,211 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "SnipLingo",
+  "version": "0.1.0",
+  "identifier": "com.sniplingo.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "SnipLingo",
+        "width": 546,
+        "height": 406,
+        "minWidth": 440,
+        "minHeight": 320,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "visible": false
+      },
+      {
+        "label": "capture",
+        "title": "SnipLingo Capture",
+        "url": "overlay.html",
+        "width": 1920,
+        "height": 1080,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "shadow": false
+      },
+      {
+        "label": "result",
+        "title": "SnipLingo 翻译结果",
+        "url": "result.html",
+        "width": 460,
+        "height": 380,
+        "minWidth": 360,
+        "minHeight": 260,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": false,
+        "skipTaskbar": true,
+        "resizable": true,
+        "fullscreen": false,
+        "visible": false,
+        "shadow": false
+      },
+      {
+        "label": "pin",
+        "title": "SnipLingo 贴图",
+        "url": "pin.html",
+        "width": 300,
+        "height": 200,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "shadow": false
+      },
+      {
+        "label": "pin_1",
+        "title": "SnipLingo 贴图",
+        "url": "pin.html",
+        "width": 300,
+        "height": 200,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "shadow": false
+      },
+      {
+        "label": "pin_2",
+        "title": "SnipLingo 贴图",
+        "url": "pin.html",
+        "width": 300,
+        "height": 200,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "shadow": false
+      },
+      {
+        "label": "pin_3",
+        "title": "SnipLingo 贴图",
+        "url": "pin.html",
+        "width": 300,
+        "height": 200,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "shadow": false
+      },
+      {
+        "label": "pin_4",
+        "title": "SnipLingo 贴图",
+        "url": "pin.html",
+        "width": 300,
+        "height": 200,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "shadow": false
+      },
+      {
+        "label": "pin_5",
+        "title": "SnipLingo 贴图",
+        "url": "pin.html",
+        "width": 300,
+        "height": 200,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "shadow": false
+      },
+      {
+        "label": "pin_6",
+        "title": "SnipLingo 贴图",
+        "url": "pin.html",
+        "width": 300,
+        "height": 200,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "shadow": false
+      },
+      {
+        "label": "pin_7",
+        "title": "SnipLingo 贴图",
+        "url": "pin.html",
+        "width": 300,
+        "height": 200,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "fullscreen": false,
+        "visible": false,
+        "shadow": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "resources": [
+      "resources/**/*"
+    ],
+    "copyright": "Copyright © 2026 SnipLingo Team",
+    "shortDescription": "桌面极速截图、贴图与翻译助理",
+    "longDescription": "SnipLingo 是一款为 Windows 用户量身打造的现代轻量桌面极速截图、贴图与翻译助理，支持屏幕取词、离线 OCR、就地译图、多引擎翻译与浮动贴图。",
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": [
+          "SimpChinese",
+          "English",
+          "TradChinese"
+        ],
+        "displayLanguageSelector": false
+      }
+    }
+  }
+}
