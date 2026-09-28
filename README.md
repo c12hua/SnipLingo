@@ -122,15 +122,24 @@ npm run tauri dev
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-### 构建安装包
+### 编译打包
 
-```powershell
-npm run tauri build
-```
+- **完整打包（同时生成安装包与便携包）**：
+  ```powershell
+  npm run build:all
+  ```
+- **仅生成安装包**：
+  ```powershell
+  npm run tauri build
+  ```
+- **仅生成便携包**：
+  ```powershell
+  npm run build:portable
+  ```
 
 构建产物位于：
 - **安装包**：`src-tauri/target/release/bundle/nsis/SnipLingo_0.1.0_x64-setup.exe`
-- **便携版**：`src-tauri/target/release/sniplingo.exe`，需与同级 `resources` 目录一起分发。
+- **便携包**：`src-tauri/target/release/bundle/SnipLingo_0.1.0_portable.zip`（已包含完整离线模型，解压即用）
 
 ---
 

@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:all": "tauri build && node scripts/pack-portable.mjs",
+    "build:portable": "tauri build --no-bundle && node scripts/pack-portable.mjs",
+    "pack:portable": "node scripts/pack-portable.mjs"
   },
   "repository": {
     "type": "git",

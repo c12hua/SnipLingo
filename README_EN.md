@@ -123,14 +123,23 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
 ### Build
-
-```powershell
-npm run tauri build
-```
+ 
+- **Full Release (Builds both Installer and Portable ZIP)**:
+  ```powershell
+  npm run build:all
+  ```
+- **Installer Only**:
+  ```powershell
+  npm run tauri build
+  ```
+- **Portable ZIP Only**:
+  ```powershell
+  npm run build:portable
+  ```
 
 Build artifacts are written to:
 - **Installer**: `src-tauri/target/release/bundle/nsis/SnipLingo_0.1.0_x64-setup.exe`
-- **Portable build**: `src-tauri/target/release/sniplingo.exe`, distributed with the adjacent `resources` directory.
+- **Portable Package**: `src-tauri/target/release/bundle/SnipLingo_0.1.0_portable.zip` (self-contained, ready to unpack and run)
 
 ---
 
