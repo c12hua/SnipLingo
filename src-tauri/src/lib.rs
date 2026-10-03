@@ -12,13 +12,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::capture_cmd::close_capture,
             commands::capture_cmd::cancel_capture,
+            commands::capture_cmd::get_capture_frame,
+            commands::capture_cmd::show_capture_overlay,
             commands::clipboard_cmd::copy_selection_to_clipboard,
             commands::clipboard_cmd::copy_translated_image_cmd,
             commands::ocr_cmd::extract_text_from_selection,
             commands::config_cmd::get_config,
             commands::config_cmd::save_config_cmd,
             commands::config_cmd::test_api_connection,
-            commands::config_cmd::get_installed_ocr_languages,
             commands::translate_cmd::translate_selection,
             commands::translate_cmd::translate_in_place,
             commands::translate_cmd::retry_translate,
@@ -28,7 +29,6 @@ pub fn run() {
             commands::pin_cmd::pin_screenshot,
             commands::pin_cmd::get_pin_data,
             commands::pin_cmd::destroy_pin_window,
-            commands::pin_cmd::destroy_all_pins_cmd,
             commands::pin_cmd::copy_pin_image_cmd,
             commands::pin_cmd::translate_pin_cmd,
             commands::pin_cmd::show_pin_context_menu,
@@ -60,11 +60,17 @@ pub fn run() {
         })
         .setup(|app| {
             if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
+                let log_plugin = tauri_plugin_log::Builder::default()
+                    .targets([
+                        tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                        tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Webview),
+                    ])
+                    .level(log::LevelFilter::Info)
+                    .build();
+
+                if let Err(e) = app.handle().plugin(log_plugin) {
+                    eprintln!("警告: 初始化日志插件失败 (已忽略): {}", e);
+                }
             }
 
             // 初始化系统托盘
@@ -104,7 +110,7 @@ pub fn run() {
             }
 
             // 启动全局后台异步静默预热管道（延时 1200ms 执行：剪贴板 OLE、翻译网络长连接池、OCR 引擎与系统语言预热）
-            core::prewarm::start_background_prewarm(app.handle().clone());
+            core::prewarm::start_background_prewarm();
 
             // 根据配置判断是否展示主设置窗口（开启静默启动时直接常驻系统托盘，不弹出主窗口）
             let config = crate::core::config::load_config();

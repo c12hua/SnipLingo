@@ -9,8 +9,6 @@
   --text-main: #0f172a;
   --text-secondary: #334155;
   --text-muted: #64748b;
-  --primary-btn: #0f172a;
-  --primary-btn-hover: #1e293b;
   --accent-blue: #2563eb;
   --radius-card: 8px;
   --radius-ctrl: 5px;
@@ -502,37 +500,6 @@ input:checked + .slider:before {
   text-align: right;
 }
 
-/* 提示卡片 */
-.callout-box {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  background-color: #f0fdf4;
-  border: 1px solid #bbf7d0;
-  border-radius: var(--radius-ctrl);
-  padding: 6px 10px;
-  margin: 8px 0;
-  font-size: 10.5px;
-  color: #166534;
-  line-height: 1.35;
-}
-
-.callout-icon {
-  font-size: 12px;
-}
-
-.callout-text strong {
-  color: #14532d;
-  font-weight: 600;
-}
-
-.field-hint-bottom {
-  font-size: 10px;
-  color: #94a3b8;
-  margin-top: 5px;
-  line-height: 1.35;
-}
-
 /* 测试连接按钮与结果栏 */
 .setting-footer-actions {
   display: flex;
@@ -585,20 +552,6 @@ input:checked + .slider:before {
   outline: none;
   padding: 4px 12px;
   white-space: nowrap;
-}
-
-.btn-primary {
-  background-color: var(--primary-btn);
-  color: #ffffff;
-  border: 1px solid transparent;
-}
-
-.btn-primary:hover {
-  background-color: var(--primary-btn-hover);
-}
-
-.btn-primary:active {
-  transform: scale(0.98);
 }
 
 .btn-secondary {

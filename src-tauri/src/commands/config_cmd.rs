@@ -11,6 +11,7 @@ pub fn save_config_cmd(app: AppHandle, config: AppConfig) -> Result<(), String> 
     let old_config = load_config();
     if old_config.hotkey != config.hotkey {
         crate::core::hotkey::update_capture_shortcut(&app, &config.hotkey)?;
+        let _ = crate::core::tray::update_tray_hotkey(&app, &config.hotkey);
     }
     save_config(&config)
 }
@@ -24,9 +25,4 @@ pub async fn test_api_connection(config: AppConfig) -> Result<String, String> {
         .map_err(|e| format!("连接测试失败: {}", e))?;
     let duration = start.elapsed().as_millis();
     Ok(format!("连通测试成功！响应耗时: {}ms，测试译文: 「{}」", duration, res.trim()))
-}
-
-#[tauri::command]
-pub fn get_installed_ocr_languages() -> Vec<String> {
-    crate::core::ocr::windows_media::WindowsMediaOcr::available_languages()
 }

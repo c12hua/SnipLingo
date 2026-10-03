@@ -138,8 +138,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
   ```
 
 Build artifacts are written to:
-- **Installer**: `src-tauri/target/release/bundle/nsis/SnipLingo_0.1.0_x64-setup.exe`
-- **Portable Package**: `src-tauri/target/release/bundle/SnipLingo_0.1.0_portable.zip` (self-contained, ready to unpack and run)
+- **Installer**: `src-tauri/target/release/bundle/nsis/SnipLingo_0.1.1_x64-setup.exe`
+- **Portable Package**: `src-tauri/target/release/bundle/SnipLingo_0.1.1_portable.zip` (self-contained, ready to unpack and run)
 
 ---
 

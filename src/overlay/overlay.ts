@@ -5,6 +5,8 @@ interface CapturePayload {
   width: number;
   height: number;
   scale_factor: number;
+  /** 抓屏瞬间前台是否被开始菜单/搜索等系统界面占着 */
+  shell_in_front: boolean;
 }
 
 type InteractionMode = "idle" | "drawing" | "moving" | "resizing";
@@ -35,6 +37,7 @@ interface InPlaceTranslationResult {
 }
 
 const captureContainer = document.getElementById("capture-container") as HTMLDivElement;
+const freezeLayer = document.getElementById("freeze-layer") as HTMLCanvasElement;
 const maskLayer = document.getElementById("mask-layer") as HTMLDivElement;
 const selectionBox = document.getElementById("selection-box") as HTMLDivElement;
 const dimensionBadge = document.getElementById("dimension-badge") as HTMLDivElement;
@@ -60,11 +63,6 @@ const btnTransSave = document.getElementById("btn-trans-save") as HTMLButtonElem
 const btnTransCancel = document.getElementById("btn-trans-cancel") as HTMLButtonElement;
 
 const TRANSLATE_ICON_HTML = `<svg class="tb-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-label="翻译"><circle cx="12" cy="12" r="8.5"/><path d="M3.7 12h16.6M12 3.5c-2.4 2.2-3.5 5-3.5 8.5s1.1 6.3 3.5 8.5c2.4-2.2 3.5-5 3.5-8.5s-1.1-6.3-3.5-8.5Z"/></svg>`;
-
-function updateBtnTag(btn: HTMLButtonElement, tagText: string) {
-  const tagEl = btn.querySelector<HTMLElement>(".tb-tag");
-  if (tagEl) tagEl.textContent = tagText;
-}
 
 const selectionCopyBubble = document.getElementById("selection-copy-bubble") as HTMLDivElement | null;
 const btnBubbleCopy = document.getElementById("btn-bubble-copy") as HTMLButtonElement | null;
@@ -119,10 +117,67 @@ function showToast(msg: string, type: "info" | "warning" | "success" = "info", d
   }, duration);
 }
 
+/** 复制高亮选中的文字并弹出预览提示（截图中所有“复制选中文本”入口共用） */
+async function copySelectedText(selectedText: string) {
+  try {
+    await navigator.clipboard.writeText(selectedText);
+    const preview = selectedText.trim().length > 20
+      ? selectedText.trim().slice(0, 20) + "..."
+      : selectedText.trim();
+    showToast(
+      currentAppLang === "en" ? `Text copied: "${preview}"` : `已复制选中文本: "${preview}"`,
+      "success",
+      1500
+    );
+  } catch (err) {
+    console.error("复制选中文本失败:", err);
+  }
+}
+
+/** 逻辑选区 → 物理像素矩形（后端截屏底图坐标系） */
+function currentRectPx() {
+  return {
+    x: Math.round(currentRect.x * scaleFactor),
+    y: Math.round(currentRect.y * scaleFactor),
+    width: Math.round(currentRect.w * scaleFactor),
+    height: Math.round(currentRect.h * scaleFactor),
+  };
+}
+
+/** 把后端冻结的整屏位图铺到最底层：遮罩之下就是这一帧静态画面。
+ *  这样开始菜单 / 搜索等系统界面即使仍在运行，也不会再"浮"在遮罩之上。 */
+async function paintFreezeFrame(width: number, height: number) {
+  if (!freezeLayer || width <= 0 || height <= 0) return;
+  const ctx = freezeLayer.getContext("2d");
+  if (!ctx) return;
+  const bytes = await invoke<ArrayBuffer>("get_capture_frame");
+  freezeLayer.width = width;
+  freezeLayer.height = height;
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(bytes), width, height), 0, 0);
+  // 注意：这里绝不能等 requestAnimationFrame —— 窗口此时还是隐藏的，
+  // 隐藏窗口里的 rAF 会被 Chromium 节流甚至不触发，导致呈现信号发不出去、
+  // 只能等后端 300ms 兜底超时（实测延迟 357ms）。putImageData 是同步写入画布的，
+  // 写完即可呈现。
+}
+
+/** 释放冻结画面占用的内存（4K 一帧约 33MB） */
+function clearFreezeFrame() {
+  if (!freezeLayer || !freezeLayer.width) return;
+  freezeLayer.getContext("2d")?.clearRect(0, 0, freezeLayer.width, freezeLayer.height);
+}
+
 // 监听 Rust 后端截屏事件
-listen<CapturePayload>("screenshot-captured", (event) => {
+listen<CapturePayload>("screenshot-captured", async (event) => {
   const payload = event.payload;
   scaleFactor = payload.scale_factor || 1;
+
+  // 关键：每一轮先把上一轮的遮罩与冻结帧清掉。
+  // 因为"再按一次快捷键退出"是后端直接 hide 窗口（不走前端），容器的 .ready 不会被摘掉，
+  // 若不清，下一轮窗口一显示就会先闪出上一轮的旧画面 —— 表现为"先遮罩、后更新"的分段过渡。
+  if (captureContainer) {
+    captureContainer.classList.remove("ready");
+  }
+  clearFreezeFrame();
 
   // 加载并同步最新动作快捷键
   loadActionShortcuts();
@@ -130,12 +185,36 @@ listen<CapturePayload>("screenshot-captured", (event) => {
   // 极速重置交互状态
   resetSelection();
 
-  // 确保视口就绪后立即无缝呈现，彻底消除任何阶段性闪烁展开现象
-  requestAnimationFrame(() => {
+  if (payload.shell_in_front) {
+    // 开始菜单 / 搜索正占着前台：呈现（后端会请其退场并确认退场后才返回）与铺帧并行做，
+    // 两者都完成后再一次性淡入，消除"系统界面浮在遮罩上"的中间态。
+    const presentPromise = invoke("show_capture_overlay", { shellInFront: true }).catch((err) => {
+      console.error("呈现截图覆盖层失败:", err);
+    });
+    const paintPromise = paintFreezeFrame(payload.width, payload.height).catch((err) => {
+      console.error("绘制冻结画面失败:", err);
+    });
+    await Promise.all([paintPromise, presentPromise]);
     if (captureContainer) {
       captureContainer.classList.add("ready");
     }
-  });
+  } else {
+    // 常规场景：立刻显示遮罩（与旧版一致的体感），冻结帧并行铺上即可 —— 画面此时是静止的，
+    // 铺前铺后肉眼无差别，没必要为它多等一次 8MB 传输。
+    if (captureContainer) {
+      captureContainer.classList.add("ready");
+    }
+    try {
+      await invoke("show_capture_overlay");
+    } catch (err) {
+      console.error("呈现截图覆盖层失败:", err);
+    }
+    try {
+      await paintFreezeFrame(payload.width, payload.height);
+    } catch (err) {
+      console.error("绘制冻结画面失败:", err);
+    }
+  }
 });
 
 function clearTranslationLayer() {
@@ -169,20 +248,21 @@ function resetSelection() {
   maskLayer.classList.remove("has-selection");
 }
 
-async function closeOverlay() {
+async function endCapture(cmd: "close_capture" | "cancel_capture") {
   if (captureContainer) {
     captureContainer.classList.remove("ready");
   }
   resetSelection();
-  await invoke("close_capture");
+  clearFreezeFrame();
+  await invoke(cmd);
+}
+
+async function closeOverlay() {
+  await endCapture("close_capture");
 }
 
 async function cancelOverlay() {
-  if (captureContainer) {
-    captureContainer.classList.remove("ready");
-  }
-  resetSelection();
-  await invoke("cancel_capture");
+  await endCapture("cancel_capture");
 }
 
 function updateSelectionDOM(x: number, y: number, w: number, h: number) {
@@ -242,19 +322,7 @@ window.addEventListener("mousedown", async (e) => {
     const selectedText = window.getSelection()?.toString();
     if (selectedText && selectedText.trim().length > 0) {
       e.preventDefault();
-      try {
-        await navigator.clipboard.writeText(selectedText);
-        const preview = selectedText.trim().length > 20
-          ? selectedText.trim().slice(0, 20) + "..."
-          : selectedText.trim();
-        showToast(
-          currentAppLang === "en" ? `Text copied: "${preview}"` : `已复制选中文本: "${preview}"`,
-          "success",
-          1500
-        );
-      } catch (err) {
-        console.error("复制选中文本失败:", err);
-      }
+      await copySelectedText(selectedText);
       dismissTextSelection();
       return;
     }
@@ -420,17 +488,7 @@ window.addEventListener("contextmenu", async (e) => {
   e.preventDefault();
   const selectedText = window.getSelection()?.toString();
   if (selectedText && selectedText.trim().length > 0) {
-    try {
-      await navigator.clipboard.writeText(selectedText);
-      const preview = selectedText.trim().length > 20
-        ? selectedText.trim().slice(0, 20) + "..."
-        : selectedText.trim();
-      showToast(
-        currentAppLang === "en" ? `Text copied: "${preview}"` : `已复制选中文本: "${preview}"`,
-        "success",
-        1500
-      );
-    } catch {}
+    await copySelectedText(selectedText);
     hideSelectionBubble();
     return;
   }
@@ -483,12 +541,7 @@ async function triggerCopy() {
     return;
   }
 
-  const rect = {
-    x: Math.round(currentRect.x * scaleFactor),
-    y: Math.round(currentRect.y * scaleFactor),
-    width: Math.round(currentRect.w * scaleFactor),
-    height: Math.round(currentRect.h * scaleFactor),
-  };
+  const rect = currentRectPx();
 
   try {
     await invoke("copy_selection_to_clipboard", { rect });
@@ -509,12 +562,7 @@ async function triggerCopy() {
 async function triggerOcrText() {
   if (currentRect.w < 10 || currentRect.h < 10) return;
 
-  const rect = {
-    x: Math.round(currentRect.x * scaleFactor),
-    y: Math.round(currentRect.y * scaleFactor),
-    width: Math.round(currentRect.w * scaleFactor),
-    height: Math.round(currentRect.h * scaleFactor),
-  };
+  const rect = currentRectPx();
 
   showToast("正在提取文本...", "info", 3000);
 
@@ -537,12 +585,7 @@ async function triggerTranslate() {
   if (currentRect.w < 10 || currentRect.h < 10) return;
   if (isTranslatingInPlace) return;
 
-  const rect = {
-    x: Math.round(currentRect.x * scaleFactor),
-    y: Math.round(currentRect.y * scaleFactor),
-    width: Math.round(currentRect.w * scaleFactor),
-    height: Math.round(currentRect.h * scaleFactor),
-  };
+  const rect = currentRectPx();
 
   const centerLogX = currentRect.x + currentRect.w / 2;
   const centerLogY = currentRect.y + currentRect.h / 2;
@@ -680,11 +723,7 @@ async function generateTranslatedImageDataUrl(result: InPlaceTranslationResult):
     ctx.fillStyle = block.bg_color;
     const radius = 4;
     ctx.beginPath();
-    if (typeof (ctx as any).roundRect === "function") {
-      (ctx as any).roundRect(rx, ry, rw, rh, radius);
-    } else {
-      ctx.rect(rx, ry, rw, rh);
-    }
+    ctx.roundRect(rx, ry, rw, rh, radius);
     ctx.fill();
 
     // 绘制译文文本
@@ -752,12 +791,7 @@ function updateToggleViewBtnText() {
 async function triggerPin() {
   if (currentRect.w < 10 || currentRect.h < 10) return;
 
-  const rect = {
-    x: Math.round(currentRect.x * scaleFactor),
-    y: Math.round(currentRect.y * scaleFactor),
-    width: Math.round(currentRect.w * scaleFactor),
-    height: Math.round(currentRect.h * scaleFactor),
-  };
+  const rect = currentRectPx();
 
   await closeOverlay();
 
@@ -765,6 +799,7 @@ async function triggerPin() {
     await invoke("pin_screenshot", { rect });
   } catch (err) {
     console.error("钉住截图失败:", err);
+    showToast(`${currentAppLang === "en" ? "Pin failed: " : "钉住失败: "}${err}`, "warning", 2500);
   }
 }
 
@@ -772,12 +807,7 @@ async function triggerPin() {
 async function triggerSave() {
   if (currentRect.w < 10 || currentRect.h < 10) return;
 
-  const rect = {
-    x: Math.round(currentRect.x * scaleFactor),
-    y: Math.round(currentRect.y * scaleFactor),
-    width: Math.round(currentRect.w * scaleFactor),
-    height: Math.round(currentRect.h * scaleFactor),
-  };
+  const rect = currentRectPx();
 
   try {
     const savedPath = await invoke<string | null>("save_selection_to_file", { rect });
@@ -802,12 +832,7 @@ async function triggerTransSave() {
       const dataUrl = await generateTranslatedImageDataUrl(currentTranslationResult);
       savedPath = await invoke<string | null>("save_data_url_to_file", { dataUrl });
     } else {
-      const rect = {
-        x: Math.round(currentRect.x * scaleFactor),
-        y: Math.round(currentRect.y * scaleFactor),
-        width: Math.round(currentRect.w * scaleFactor),
-        height: Math.round(currentRect.h * scaleFactor),
-      };
+      const rect = currentRectPx();
       savedPath = await invoke<string | null>("save_selection_to_file", { rect });
     }
 
@@ -889,8 +914,6 @@ async function loadActionShortcuts() {
       btnTransPin.title = "Pin to Desktop";
       if (btnTransSave) btnTransSave.title = "Save Current Image";
       btnTransCancel.title = "Exit (ESC)";
-      updateBtnTag(btnCopyTransImg, "T");
-      updateBtnTag(btnCopyOrigImg, "O");
     } else if (lang === "zh-TW") {
       btnCopy.title = `複製 (${actionCopyShortcut})`;
       if (btnOcr) {
@@ -908,8 +931,6 @@ async function loadActionShortcuts() {
       btnTransPin.title = "將當前選區釘在桌面";
       if (btnTransSave) btnTransSave.title = "儲存當前圖片";
       btnTransCancel.title = "完成並退出 (ESC)";
-      updateBtnTag(btnCopyTransImg, "譯");
-      updateBtnTag(btnCopyOrigImg, "原");
     } else {
       btnCopy.title = `复制 (${actionCopyShortcut})`;
       if (btnOcr) {
@@ -927,8 +948,6 @@ async function loadActionShortcuts() {
       btnTransPin.title = "将当前选区钉在桌面";
       if (btnTransSave) btnTransSave.title = "保存当前图片";
       btnTransCancel.title = "完成并退出 (ESC)";
-      updateBtnTag(btnCopyTransImg, "译");
-      updateBtnTag(btnCopyOrigImg, "原");
     }
     updateToggleViewBtnText();
   } catch (err) {
@@ -958,19 +977,7 @@ window.addEventListener("keydown", async (e) => {
     const selectedText = window.getSelection()?.toString();
     if (selectedText && selectedText.trim().length > 0) {
       e.preventDefault();
-      try {
-        await navigator.clipboard.writeText(selectedText);
-        const preview = selectedText.trim().length > 20
-          ? selectedText.trim().slice(0, 20) + "..."
-          : selectedText.trim();
-        showToast(
-          currentAppLang === "en" ? `Text copied: "${preview}"` : `已复制选中文本: "${preview}"`,
-          "success",
-          1500
-        );
-      } catch (err) {
-        console.error("复制选中文本失败:", err);
-      }
+      await copySelectedText(selectedText);
       dismissTextSelection();
       return;
     }
@@ -1111,12 +1118,7 @@ btnCopyOrigImg.addEventListener("click", async () => {
       showToast(currentAppLang === "en" ? "Copying original image..." : "正在复制原图...", "info", 1500);
       await invoke("copy_translated_image_cmd", { dataUrl: currentTranslationResult.image_data });
     } else {
-      const rect = {
-        x: Math.round(currentRect.x * scaleFactor),
-        y: Math.round(currentRect.y * scaleFactor),
-        width: Math.round(currentRect.w * scaleFactor),
-        height: Math.round(currentRect.h * scaleFactor),
-      };
+      const rect = currentRectPx();
       await invoke("copy_selection_to_clipboard", { rect });
     }
     showToast(currentAppLang === "en" ? "Original image copied!" : "原图已复制到剪贴板", "success", 1200);
@@ -1194,19 +1196,7 @@ btnBubbleCopy?.addEventListener("click", async (e) => {
   e.preventDefault();
   const selectedText = window.getSelection()?.toString();
   if (selectedText && selectedText.trim().length > 0) {
-    try {
-      await navigator.clipboard.writeText(selectedText);
-      const preview = selectedText.trim().length > 20
-        ? selectedText.trim().slice(0, 20) + "..."
-        : selectedText.trim();
-      showToast(
-        currentAppLang === "en" ? `Text copied: "${preview}"` : `已复制选中文本: "${preview}"`,
-        "success",
-        1500
-      );
-    } catch (err) {
-      console.error("复制选中文本失败:", err);
-    }
+    await copySelectedText(selectedText);
   }
   dismissTextSelection();
 });

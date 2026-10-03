@@ -27,5 +27,3 @@ impl std::fmt::Display for SnipLingoError {
         }
     }
 }
-
-impl std::error::Error for SnipLingoError {}

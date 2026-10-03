@@ -61,4 +61,6 @@ skills-lock.json
 *.tar.gz
 *.7z
 
+# 多余的文件
 logo_minimalist_preview.jpg
+SnipLingo改进记录.txt

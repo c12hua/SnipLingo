@@ -8,6 +8,8 @@
   </head>
   <body>
     <div id="capture-container">
+      <!-- 冻结画面底层：铺满整屏的静态截图，遮罩之下不再是"活的桌面" -->
+      <canvas id="freeze-layer"></canvas>
       <div id="mask-layer"></div>
       <div id="esc-hint-pill">
         <span>按 ESC 或 鼠标右键 退出截图</span>

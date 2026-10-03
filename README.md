@@ -138,8 +138,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
   ```
 
 构建产物位于：
-- **安装包**：`src-tauri/target/release/bundle/nsis/SnipLingo_0.1.0_x64-setup.exe`
-- **便携包**：`src-tauri/target/release/bundle/SnipLingo_0.1.0_portable.zip`（已包含完整离线模型，解压即用）
+- **安装包**：`src-tauri/target/release/bundle/nsis/SnipLingo_0.1.1_x64-setup.exe`
+- **便携包**：`src-tauri/target/release/bundle/SnipLingo_0.1.1_portable.zip`（已包含完整离线模型，解压即用）
 
 ---
 

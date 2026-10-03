@@ -35,6 +35,12 @@ interface AppConfig {
 // 标志位：初始化加载配置期间，不触发自动保存
 let isInitializing = true;
 
+declare const __APP_VERSION__: string;
+const brandVersionEl = document.querySelector(".brand-version");
+if (brandVersionEl && typeof __APP_VERSION__ !== "undefined") {
+  brandVersionEl.textContent = `v${__APP_VERSION__}`;
+}
+
 // 1. 侧边栏导航 Tab 切换
 const navButtons = document.querySelectorAll<HTMLButtonElement>(".nav-item");
 const tabPanels = document.querySelectorAll<HTMLElement>(".tab-panel");
@@ -336,10 +342,6 @@ providerSelect.addEventListener("change", () => {
   if (!isInitializing) saveCurrentConfig("panel-translation");
 });
 
-function updateOcrEngineHint(_engine: string) {
-  // 保持界面干净，无冗余提示
-}
-
 // 收集当前界面配置
 function collectConfigFromUI(): AppConfig {
   const currentProvider = providerSelect.value;
@@ -461,7 +463,6 @@ pinShadowCheckbox.addEventListener("change", () => saveCurrentConfig("panel-pin"
 // OCR 即时生效监听
 if (ocrEngineSelect) {
   ocrEngineSelect.addEventListener("change", () => {
-    updateOcrEngineHint(ocrEngineSelect.value);
     saveCurrentConfig("panel-ocr");
   });
 }
@@ -549,7 +550,6 @@ btnResetTranslation.addEventListener("click", async () => {
 btnResetOcr.addEventListener("click", async () => {
   if (ocrEngineSelect) {
     ocrEngineSelect.value = "windows";
-    updateOcrEngineHint("windows");
   }
   ocrLangSelect.value = "auto";
   preserveLineBreaksCheckbox.checked = false;
@@ -613,7 +613,6 @@ async function init() {
     // 5. OCR 与排版设置
     if (ocrEngineSelect) {
       ocrEngineSelect.value = config.ocr_engine || "windows";
-      updateOcrEngineHint(ocrEngineSelect.value);
     }
     ocrLangSelect.value = config.ocr_lang || "auto";
     preserveLineBreaksCheckbox.checked = !!config.preserve_line_breaks;

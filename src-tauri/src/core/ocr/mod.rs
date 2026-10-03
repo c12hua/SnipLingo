@@ -7,7 +7,7 @@ use crate::core::config::AppConfig;
 use crate::core::error::SnipLingoError;
 use image::RgbaImage;
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct OcrRect {
     pub x: u32,
     pub y: u32,
@@ -15,14 +15,14 @@ pub struct OcrRect {
     pub height: u32,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct OcrLineBlock {
     pub text: String,
     pub rect: OcrRect,
     pub confidence: f32,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct DetailedOcrResult {
     pub full_text: String,
     pub blocks: Vec<OcrLineBlock>,

@@ -2,12 +2,15 @@ use tauri::{AppHandle, Manager};
 use tauri::menu::{ContextMenu, Menu, MenuItem, PredefinedMenuItem};
 use crate::core::capture::SelectionRect;
 use crate::core::pin::{
-    copy_pin_to_clipboard, destroy_all_pins, destroy_pin, get_pin_data_for, pin_selection_image,
+    copy_pin_to_clipboard, destroy_pin, get_pin_data_for, pin_selection_image,
     translate_pin, PinData,
 };
 
 #[tauri::command]
-pub fn pin_screenshot(app: AppHandle, rect: SelectionRect) -> Result<String, String> {
+pub async fn pin_screenshot(app: AppHandle, rect: SelectionRect) -> Result<String, String> {
+    // 必须是 async 命令：窗口创建只能在事件循环外发起（异步投递给主线程）。
+    // sync 命令会在主线程的 IPC 分发中【内联重入】创建 WebView2 窗口，
+    // 卡死整个 IPC 通道——表现为贴图后 ESC/取帧等一切交互永久失效，屏幕被遮罩锁死。
     pin_selection_image(&app, &rect)
 }
 
@@ -19,11 +22,6 @@ pub fn get_pin_data(app: AppHandle, label: String) -> Result<PinData, String> {
 #[tauri::command]
 pub fn destroy_pin_window(app: AppHandle, label: String) -> Result<(), String> {
     destroy_pin(&app, &label)
-}
-
-#[tauri::command]
-pub fn destroy_all_pins_cmd(app: AppHandle) -> Result<(), String> {
-    destroy_all_pins(&app)
 }
 
 #[tauri::command]

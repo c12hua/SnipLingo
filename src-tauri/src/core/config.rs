@@ -2,105 +2,23 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-fn default_app_language() -> String {
-    "zh-CN".to_string()
-}
-
-fn default_auto_start() -> bool {
-    false
-}
-
-fn default_silent_start() -> bool {
-    true
-}
-
-fn default_action_copy_shortcut() -> String {
-    "Ctrl+C".to_string()
-}
-
-fn default_action_translate_shortcut() -> String {
-    "Ctrl+S".to_string()
-}
-
-fn default_action_ocr_shortcut() -> String {
-    "Ctrl+T".to_string()
-}
-
-fn default_action_pin_shortcut() -> String {
-    "Ctrl+P".to_string()
-}
-
-fn default_hotkey() -> String {
-    "F4".to_string()
-}
-
-fn default_pin_shadow() -> bool {
-    false
-}
-
-fn default_pin_opacity() -> u32 {
-    100
-}
-
-fn default_ocr_lang() -> String {
-    "auto".to_string()
-}
-
-fn default_preserve_line_breaks() -> bool {
-    false
-}
-
-fn default_enhance_contrast() -> bool {
-    true
-}
-
-fn default_ocr_engine() -> String {
-    "windows".to_string()
-}
-
-fn default_in_place_translate() -> bool {
-    true
-}
-
-fn default_source_lang() -> String {
-    "auto".to_string()
-}
-
-fn default_target_lang() -> String {
-    "zh-CN".to_string()
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(default)]
 pub struct AppConfig {
-    #[serde(default = "default_app_language")]
     pub app_language: String, // 整个工具显示语言: "zh-CN" | "en" | "zh-TW"
-    #[serde(default = "default_auto_start")]
     pub auto_start: bool, // 开机自启动
-    #[serde(default = "default_silent_start")]
     pub silent_start: bool, // 静默启动：启动后直接最小化至系统托盘，不弹出主界面
-    #[serde(default = "default_hotkey")]
     pub hotkey: String, // 全局截图唤起快捷键
-    #[serde(default = "default_action_copy_shortcut")]
     pub action_copy_shortcut: String, // 截屏选区操作: 复制图片
-    #[serde(default = "default_action_ocr_shortcut")]
     pub action_ocr_shortcut: String, // 截屏选区操作: 获取文本 (OCR)
-    #[serde(default = "default_action_translate_shortcut")]
     pub action_translate_shortcut: String, // 截屏选区操作: 翻译
-    #[serde(default = "default_action_pin_shortcut")]
     pub action_pin_shortcut: String, // 截屏选区操作: 钉住
-    #[serde(default = "default_pin_shadow")]
     pub pin_shadow: bool, // 钉住截图是否开启立体阴影边框
-    #[serde(default = "default_pin_opacity")]
     pub pin_opacity: u32, // 贴图不透明度百分比: 10..=100
-    #[serde(default = "default_ocr_engine")]
     pub ocr_engine: String, // "windows" | "ocrs"
-    #[serde(default = "default_ocr_lang")]
     pub ocr_lang: String, // "auto" | "zh-Hans" | "en" | "ja" | "ko" | "zh-Hant"
-    #[serde(default = "default_preserve_line_breaks")]
     pub preserve_line_breaks: bool, // 代码/日志排版优化：是否保持换行
-    #[serde(default = "default_enhance_contrast")]
     pub enhance_contrast: bool, // 暗色主题/低对比度文字增强
-    #[serde(default = "default_in_place_translate")]
     pub in_place_translate: bool, // 是否在截图选区上直接覆盖显示译文卡片
     pub provider: String, // "google" | "baidu" | "openai" | "deepl"
     pub api_key: String, // for OpenAI, DeepL, or Baidu App ID (旧版通用兼容)
@@ -108,21 +26,13 @@ pub struct AppConfig {
     pub base_url: Option<String>, // e.g. "https://api.openai.com/v1" (旧版通用兼容)
     pub model: Option<String>, // e.g. "gpt-4o-mini" (旧版通用兼容)
     // 多引擎独立凭据记忆（切换服务商时不互相覆盖）
-    #[serde(default)]
     pub openai_api_key: Option<String>,
-    #[serde(default)]
     pub openai_base_url: Option<String>,
-    #[serde(default)]
     pub openai_model: Option<String>,
-    #[serde(default)]
     pub deepl_api_key: Option<String>,
-    #[serde(default)]
     pub baidu_app_id: Option<String>,
-    #[serde(default)]
     pub baidu_secret_key: Option<String>,
-    #[serde(default = "default_source_lang")]
     pub source_lang: String, // 翻译源语言: "auto" | "zh-CN" | "en" | ...
-    #[serde(default = "default_target_lang")]
     pub target_lang: String, // 翻译目标语言: "zh-CN" | "en" | ...
 }
 
@@ -179,21 +89,21 @@ impl AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            app_language: default_app_language(),
-            auto_start: default_auto_start(),
-            silent_start: default_silent_start(),
-            hotkey: default_hotkey(),
-            action_copy_shortcut: default_action_copy_shortcut(),
-            action_ocr_shortcut: default_action_ocr_shortcut(),
-            action_translate_shortcut: default_action_translate_shortcut(),
-            action_pin_shortcut: default_action_pin_shortcut(),
-            pin_shadow: default_pin_shadow(),
-            pin_opacity: default_pin_opacity(),
-            ocr_engine: default_ocr_engine(),
-            ocr_lang: default_ocr_lang(),
-            preserve_line_breaks: default_preserve_line_breaks(),
-            enhance_contrast: default_enhance_contrast(),
-            in_place_translate: default_in_place_translate(),
+            app_language: "zh-CN".to_string(),
+            auto_start: false,
+            silent_start: true,
+            hotkey: "F4".to_string(),
+            action_copy_shortcut: "Ctrl+C".to_string(),
+            action_ocr_shortcut: "Ctrl+T".to_string(),
+            action_translate_shortcut: "Ctrl+S".to_string(),
+            action_pin_shortcut: "Ctrl+P".to_string(),
+            pin_shadow: false,
+            pin_opacity: 100,
+            ocr_engine: "windows".to_string(),
+            ocr_lang: "auto".to_string(),
+            preserve_line_breaks: false,
+            enhance_contrast: true,
+            in_place_translate: true,
             provider: "google".to_string(), // 默认启用谷歌翻译 (免配置 Key，开箱即用)
             api_key: "".to_string(),
             secret_key: None,
@@ -205,19 +115,24 @@ impl Default for AppConfig {
             deepl_api_key: None,
             baidu_app_id: None,
             baidu_secret_key: None,
-            source_lang: default_source_lang(),
-            target_lang: default_target_lang(),
+            source_lang: "auto".to_string(),
+            target_lang: "zh-CN".to_string(),
         }
     }
 }
 
 fn get_config_path() -> PathBuf {
+    let filename = if cfg!(debug_assertions) {
+        "config.dev.json"
+    } else {
+        "config.json"
+    };
     if let Ok(app_data) = std::env::var("APPDATA") {
         let dir = PathBuf::from(app_data).join("SnipLingo");
         let _ = fs::create_dir_all(&dir);
-        dir.join("config.json")
+        dir.join(filename)
     } else {
-        PathBuf::from("config.json")
+        PathBuf::from(filename)
     }
 }
 
@@ -228,11 +143,30 @@ pub fn load_config() -> AppConfig {
             return config;
         }
     }
+    // 开发模式下若尚未生成 config.dev.json，则无缝复用正式版偏好凭据，但强制关闭开机自启
+    if cfg!(debug_assertions) {
+        if let Ok(app_data) = std::env::var("APPDATA") {
+            let prod_path = PathBuf::from(app_data).join("SnipLingo").join("config.json");
+            if let Ok(content) = fs::read_to_string(&prod_path) {
+                if let Ok(mut config) = serde_json::from_str::<AppConfig>(&content) {
+                    config.auto_start = false;
+                    let _ = save_config(&config);
+                    return config;
+                }
+            }
+        }
+    }
     AppConfig::default()
 }
 
 #[cfg(target_os = "windows")]
 pub fn sync_autostart_registry(enabled: bool) {
+    // 关键防御：开发/调试模式下禁止写入系统 Run 注册表，防止覆写已安装稳定版的开机启动项
+    if cfg!(debug_assertions) {
+        log::info!("开发调试模式下跳过开机自启动注册表同步，保持稳定版开机启动项不被覆盖");
+        return;
+    }
+
     if let Ok(exe) = std::env::current_exe() {
         let exe_str = exe.to_string_lossy().to_string();
         use std::os::windows::process::CommandExt;
@@ -351,5 +285,15 @@ mod tests {
         assert_eq!(leg_k, "sk-legacy-key");
         assert_eq!(leg_u.as_deref(), Some("https://legacy.url"));
         assert_eq!(leg_m.as_deref(), Some("legacy-model"));
+    }
+
+    #[test]
+    fn test_config_path_debug_separation() {
+        let path = get_config_path();
+        if cfg!(debug_assertions) {
+            assert!(path.to_string_lossy().ends_with("config.dev.json"));
+        } else {
+            assert!(path.to_string_lossy().ends_with("config.json"));
+        }
     }
 }

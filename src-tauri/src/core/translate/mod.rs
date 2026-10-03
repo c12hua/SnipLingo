@@ -6,7 +6,7 @@ pub mod openai;
 
 use crate::core::config::AppConfig;
 use crate::core::error::SnipLingoError;
-pub use client::{
+use client::{
     compute_cache_key, finish_in_flight, get_cached, prewarm_provider, register_or_join_in_flight,
     set_cached, InFlightStatus,
 };

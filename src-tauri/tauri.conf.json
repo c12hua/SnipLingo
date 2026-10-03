@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "SnipLingo",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.sniplingo.desktop",
   "build": {
     "frontendDist": "../dist",
@@ -21,7 +21,8 @@
         "resizable": true,
         "fullscreen": false,
         "center": true,
-        "visible": false
+        "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site"
       },
       {
         "label": "capture",
@@ -36,6 +37,7 @@
         "resizable": false,
         "fullscreen": false,
         "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site",
         "shadow": false
       },
       {
@@ -53,6 +55,7 @@
         "resizable": true,
         "fullscreen": false,
         "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site",
         "shadow": false
       },
       {
@@ -68,6 +71,7 @@
         "resizable": false,
         "fullscreen": false,
         "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site",
         "shadow": false
       },
       {
@@ -83,6 +87,7 @@
         "resizable": false,
         "fullscreen": false,
         "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site",
         "shadow": false
       },
       {
@@ -98,6 +103,7 @@
         "resizable": false,
         "fullscreen": false,
         "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site",
         "shadow": false
       },
       {
@@ -113,6 +119,7 @@
         "resizable": false,
         "fullscreen": false,
         "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site",
         "shadow": false
       },
       {
@@ -128,6 +135,7 @@
         "resizable": false,
         "fullscreen": false,
         "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site",
         "shadow": false
       },
       {
@@ -143,6 +151,7 @@
         "resizable": false,
         "fullscreen": false,
         "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site",
         "shadow": false
       },
       {
@@ -158,6 +167,7 @@
         "resizable": false,
         "fullscreen": false,
         "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site",
         "shadow": false
       },
       {
@@ -173,6 +183,7 @@
         "resizable": false,
         "fullscreen": false,
         "visible": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --process-per-site",
         "shadow": false
       }
     ],
@@ -182,7 +193,9 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

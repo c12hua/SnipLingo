@@ -115,10 +115,9 @@ impl WindowsMediaOcr {
     }
 }
 
-impl Default for WindowsMediaOcr {
-    fn default() -> Self {
-        Self::new()
-    }
+/// 将 WinRT 调用错误统一包装为截屏失败错误，保留原有中文上下文前缀
+fn cap_err<T>(res: windows::core::Result<T>, ctx: &str) -> Result<T, SnipLingoError> {
+    res.map_err(|e| SnipLingoError::CaptureFailed(format!("{}: {}", ctx, e)))
 }
 
 impl OcrEngine for WindowsMediaOcr {
@@ -139,38 +138,23 @@ impl OcrEngine for WindowsMediaOcr {
 
         // 2. 将 RGBA 字节流写入 WinRT IBuffer
         let t_infer = std::time::Instant::now();
-        let writer = DataWriter::new()
-            .map_err(|e| SnipLingoError::CaptureFailed(format!("创建 DataWriter 失败: {}", e)))?;
-        writer
-            .WriteBytes(raw_bytes)
-            .map_err(|e| SnipLingoError::CaptureFailed(format!("写入位图数据失败: {}", e)))?;
-        let buffer = writer
-            .DetachBuffer()
-            .map_err(|e| SnipLingoError::CaptureFailed(format!("获取数据缓冲失败: {}", e)))?;
+        let writer = cap_err(DataWriter::new(), "创建 DataWriter 失败")?;
+        cap_err(writer.WriteBytes(raw_bytes), "写入位图数据失败")?;
+        let buffer = cap_err(writer.DetachBuffer(), "获取数据缓冲失败")?;
 
         // 3. 从缓冲创建 SoftwareBitmap (Rgba8)
-        let bitmap = SoftwareBitmap::CreateCopyFromBuffer(
-            &buffer,
-            BitmapPixelFormat::Rgba8,
-            width,
-            height,
-        )
-        .map_err(|e| SnipLingoError::CaptureFailed(format!("创建 SoftwareBitmap 失败: {}", e)))?;
+        let bitmap = cap_err(
+            SoftwareBitmap::CreateCopyFromBuffer(&buffer, BitmapPixelFormat::Rgba8, width, height),
+            "创建 SoftwareBitmap 失败",
+        )?;
 
         // 4. 多语言识别引擎匹配与初始化
         let engine = Self::create_engine_for_lang(&self.ocr_lang)?;
 
         // 5. 异步调用 Windows Media OCR
-        let async_op = engine
-            .RecognizeAsync(&bitmap)
-            .map_err(|e| SnipLingoError::CaptureFailed(format!("发起 OCR 识别失败: {}", e)))?;
-        let result = async_op
-            .get()
-            .map_err(|e| SnipLingoError::CaptureFailed(format!("等待 OCR 结果失败: {}", e)))?;
-        let raw_text = result
-            .Text()
-            .map_err(|e| SnipLingoError::CaptureFailed(format!("提取文本失败: {}", e)))?
-            .to_string();
+        let async_op = cap_err(engine.RecognizeAsync(&bitmap), "发起 OCR 识别失败")?;
+        let result = cap_err(async_op.get(), "等待 OCR 结果失败")?;
+        let raw_text = cap_err(result.Text(), "提取文本失败")?.to_string();
         let infer_ms = t_infer.elapsed().as_millis();
 
         // 6. 提取行级包围盒 (汇总每行词级 BoundingRect)

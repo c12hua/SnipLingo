@@ -242,9 +242,11 @@ mod tests {
     #[test]
     fn test_save_rgba_image_to_path_png_and_bmp() {
         let img = image::RgbaImage::from_pixel(10, 10, image::Rgba([255, 0, 0, 255]));
-        let tmp_png = std::env::temp_dir().join("test_sniplingo_save.png");
-        let tmp_bmp = std::env::temp_dir().join("test_sniplingo_save.bmp");
-        let tmp_jpg = std::env::temp_dir().join("test_sniplingo_save.jpg");
+        let tmp_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target").join("test_tmp");
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let tmp_png = tmp_dir.join("test_sniplingo_save.png");
+        let tmp_bmp = tmp_dir.join("test_sniplingo_save.bmp");
+        let tmp_jpg = tmp_dir.join("test_sniplingo_save.jpg");
 
         assert!(save_rgba_image_to_path(&img, &tmp_png).is_ok());
         assert!(save_rgba_image_to_path(&img, &tmp_bmp).is_ok());

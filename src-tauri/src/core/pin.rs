@@ -9,7 +9,7 @@ use tauri::{
     WebviewWindowBuilder,
 };
 
-use crate::core::capture::{crop_captured_image, SafeCaptureState, SelectionRect};
+use crate::core::capture::{crop_captured_image, disable_window_animations, SafeCaptureState, SelectionRect};
 use crate::core::config::load_config;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
@@ -67,6 +67,7 @@ pub fn pin_selection_image(app: &AppHandle, rect: &SelectionRect) -> Result<Stri
 
     let config = load_config();
     let has_shadow = config.pin_shadow;
+    let opacity = config.pin_opacity;
 
     // 物理坐标与尺寸定位
     let phys_x = mon_x + rect.x as i32;
@@ -86,62 +87,55 @@ pub fn pin_selection_image(app: &AppHandle, rect: &SelectionRect) -> Result<Stri
     let win_w = phys_w + (shadow_padding * 2) as u32;
     let win_h = phys_h + (shadow_padding * 2) as u32;
 
-    // 智能窗口池分配：优先从预热池中取当前未占用的窗口（零初始化延迟）
-    let target_label = {
-        let mut chosen = None;
-        if let Some(storage) = app.try_state::<SafePinStorage>() {
-            if let Ok(lock) = storage.lock() {
-                for label in POOLED_PIN_LABELS {
-                    let is_occupied = lock.pins.contains_key(*label);
-                    let is_vis = app
-                        .get_webview_window(label)
-                        .and_then(|w| w.is_visible().ok())
-                        .unwrap_or(false);
-                    if !is_occupied && !is_vis {
-                        chosen = Some((*label).to_string());
-                        break;
-                    }
-                }
+    // 智能窗口池分配 + 占用登记在同一锁作用域内完成（async 命令可能并发进入，
+    // 防止两次贴图选中同一 label）：优先取空闲池窗口，池窗口不再启动预创建，
+    // 随实际并发贴图数按需增长（复用后常驻待用）。
+    // 注意：锁内不得做任何等主线程的 dispatcher 调用（is_visible 之类）——
+    // 菜单事件在主线程也要拿这把锁，持锁等待主线程会对撞死锁；
+    // pins map 即占用唯一真相（所有销毁路径都经 destroy_pin 同步移除）
+    let (target_label, pin_data) = {
+        let storage = app.try_state::<SafePinStorage>().ok_or("未找到贴图存储")?;
+        let mut lock = storage.lock().map_err(|_| "锁获取失败".to_string())?;
+        let mut chosen: Option<String> = None;
+        for label in POOLED_PIN_LABELS {
+            if !lock.pins.contains_key(*label) {
+                chosen = Some((*label).to_string());
+                break;
             }
         }
-        chosen.unwrap_or_else(|| {
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis())
-                .unwrap_or(0);
-            format!("pin_{}", timestamp)
-        })
+        let label = chosen.unwrap_or_else(|| {
+                let timestamp = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_nanos())
+                    .unwrap_or(0);
+                format!("pin_{}", timestamp)
+            });
+
+        let pin_data = PinData {
+            label: label.clone(),
+            image_data: base64_str,
+            width: phys_w,
+            height: phys_h,
+            has_shadow,
+            opacity,
+        };
+        lock.pins.insert(label.clone(), (cropped, pin_data.clone()));
+        (label, pin_data)
     };
-
-    let config = load_config();
-    let has_shadow = config.pin_shadow;
-    let opacity = config.pin_opacity;
-
-    let pin_data = PinData {
-        label: target_label.clone(),
-        image_data: base64_str,
-        width: phys_w,
-        height: phys_h,
-        has_shadow,
-        opacity,
-    };
-
-    // 存储当前贴图缓存
-    if let Some(storage) = app.try_state::<SafePinStorage>() {
-        let mut lock = storage.lock().map_err(|_| "锁获取失败".to_string())?;
-        lock.pins.insert(target_label.clone(), (cropped, pin_data.clone()));
-    }
 
     let target_win = if let Some(existing_win) = app.get_webview_window(&target_label) {
         existing_win
     } else {
+        // ponytail: 运行时建窗在 --process-per-site 下不可用（WebView2 已知限制），
+        // 正常情况下 8 个预创建池窗口足够覆盖并发贴图，此路径仅在超限时兜底；
+        // 超限时 build 失败会以 Err 返回，由前端 toast 提示
         let sf = scale_factor as f64;
         let logical_x = (win_x as f64) / sf;
         let logical_y = (win_y as f64) / sf;
         let logical_w = (win_w as f64) / sf;
         let logical_h = (win_h as f64) / sf;
 
-        WebviewWindowBuilder::new(app, &target_label, WebviewUrl::App(PathBuf::from("pin.html")))
+        let win = WebviewWindowBuilder::new(app, &target_label, WebviewUrl::App(PathBuf::from("pin.html")))
             .title("SnipLingo 贴图")
             .position(logical_x, logical_y)
             .inner_size(logical_w, logical_h)
@@ -153,7 +147,11 @@ pub fn pin_selection_image(app: &AppHandle, rect: &SelectionRect) -> Result<Stri
             .resizable(false)
             .visible(false)
             .build()
-            .map_err(|e| format!("创建贴图窗口失败: {}", e))?
+            .map_err(|e| format!("创建贴图窗口失败: {}", e))?;
+        // hwnd() 会等待主线程完成真实窗口创建；动画禁用赶在 show 之前生效
+        #[cfg(target_os = "windows")]
+        disable_window_animations(&win);
+        win
     };
 
     let _ = target_win.set_position(Position::Physical(PhysicalPosition::new(win_x, win_y)));

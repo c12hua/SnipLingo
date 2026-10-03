@@ -29,7 +29,7 @@ pub fn init_window_animations(app: &AppHandle) {
 
 /// 启动全局后台异步静默预热管道
 /// 在托盘与主程序初始化完成 1200ms 后于独立工作线程执行，不抢占主进程启动资源
-pub fn start_background_prewarm(_app: AppHandle) {
+pub fn start_background_prewarm() {
     let _ = std::thread::Builder::new()
         .name("sniplingo-prewarm".to_string())
         .spawn(move || {
@@ -37,6 +37,23 @@ pub fn start_background_prewarm(_app: AppHandle) {
             std::thread::sleep(Duration::from_millis(1200));
             let t_prewarm_total = std::time::Instant::now();
             log::info!("正在启动 SnipLingo 全局后台静默预热流程...");
+
+            // 0. DXGI 抓屏路径预热：D3D 设备创建 + 首次复制会话开销（实测 ~500ms）
+            //    挪到启动期，避免用户启动后第一次按快捷键时撞上冷启动延迟
+            let t_dxgi = std::time::Instant::now();
+            if let Ok(monitors) = xcap::Monitor::all() {
+                if let Some(m) = monitors.first() {
+                    if let (Ok(x), Ok(y), Ok(w), Ok(h)) =
+                        (m.x(), m.y(), m.width(), m.height())
+                    {
+                        let _ = crate::core::capture::capture_monitor_dxgi(x, y, w, h);
+                    }
+                }
+            }
+            log::debug!(
+                "[阶段0性能基线] 后台预热 0/4: DXGI 抓屏预热耗时 {:?}",
+                t_dxgi.elapsed()
+            );
 
             // 1. 系统剪贴板 OLE 运行环境预热
             let t_cb = std::time::Instant::now();

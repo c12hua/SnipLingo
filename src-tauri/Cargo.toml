@@ -1,6 +1,6 @@
 [package]
 name = "sniplingo"
-version = "0.1.0"
+version = "0.1.1"
 description = "SnipLingo Desktop Screenshot & Translation Assistant"
 authors = ["SnipLingo Team"]
 edition = "2021"
@@ -26,13 +26,18 @@ xcap = "0.9.8"
 image = "0.25.6"
 base64 = "0.23.1"
 arboard = "3.6.1"
-windows = { version = "0.61", features = ["Media_Ocr", "Globalization", "Graphics_Imaging", "Storage_Streams", "Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading"] }
+windows = { version = "0.61", features = ["Media_Ocr", "Globalization", "Graphics_Imaging", "Storage_Streams", "Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_Graphics_Dwm", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi", "Win32_Graphics_Dxgi_Common", "Win32_UI_HiDpi", "Win32_Graphics_Gdi"] }
 reqwest = { version = "0.13.3", default-features = false, features = ["json", "rustls", "form", "query", "blocking"] }
 md5 = "0.8.1"
 ppocr-rs = { version = "0.7.3", features = ["fetch-models"] }
 ort = { version = "=2.0.0-rc.9", default-features = false, features = ["load-dynamic", "ndarray", "half"] }
 tokio = { version = "1", features = ["sync", "rt", "time"] }
 rfd = "0.15"
+
+# 截图热路径含整屏 BGRA→RGBA 逐字节处理，debug 无优化时会放大到上百毫秒，
+# 失真于 release 体感，故 dev 构建至少开 O1
+[profile.dev]
+opt-level = 1
 
 [profile.release]
 opt-level = 3

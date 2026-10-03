@@ -25,14 +25,6 @@ impl PaddleOcrEngine {
         }
     }
 
-    pub fn with_version(version: PpOcrVersion) -> Self {
-        Self {
-            version,
-            enhance_contrast: true,
-            preserve_line_breaks: false,
-        }
-    }
-
     pub fn with_options(version: PpOcrVersion, enhance_contrast: bool, preserve_line_breaks: bool) -> Self {
         Self {
             version,
@@ -464,8 +456,10 @@ PostProcess:
     - '中'
     - '文'
 "#;
-        let tmp_yml = std::env::temp_dir().join("test_rec_inf.yml");
-        let tmp_dict = std::env::temp_dir().join("test_dict.txt");
+        let tmp_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target").join("test_tmp");
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let tmp_yml = tmp_dir.join("test_rec_inf.yml");
+        let tmp_dict = tmp_dir.join("test_dict.txt");
 
         std::fs::write(&tmp_yml, sample_yml).unwrap();
         PaddleOcrEngine::extract_dict(&tmp_yml, &tmp_dict).unwrap();

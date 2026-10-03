@@ -49,13 +49,7 @@ fn to_baidu_target_lang(code: &str) -> &'static str {
         "ru" => "ru",
         "de" => "de",
         "it" => "it",
-        other => {
-            if other.starts_with("zh") {
-                "zh"
-            } else {
-                "zh"
-            }
-        }
+        _ => "zh",
     }
 }
 
