@@ -16,7 +16,7 @@
           </div>
           <div class="brand-info">
             <div class="brand-title">SnipLingo</div>
-            <div class="brand-version">v0.1.1</div>
+            <div class="brand-version">v0.1.2</div>
           </div>
         </div>
 
@@ -196,6 +196,26 @@
                       readonly
                     />
                     <button id="btn-reset-action-ocr" type="button" class="btn-icon" title="恢复默认 (Ctrl+T)">↺</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="setting-divider"></div>
+
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="action-qrcode-input" data-i18n="label.action_qrcode">识别二维码</label>
+                </div>
+                <div class="setting-ctrl">
+                  <div class="key-recorder-group">
+                    <input
+                      id="action-qrcode-input"
+                      type="text"
+                      class="key-recorder-input"
+                      value="Ctrl+Q"
+                      readonly
+                    />
+                    <button id="btn-reset-action-qrcode" type="button" class="btn-icon" title="恢复默认 (Ctrl+Q)">↺</button>
                   </div>
                 </div>
               </div>
@@ -575,6 +595,21 @@
                     <input type="checkbox" id="enhance-contrast-checkbox" />
                     <span class="slider"></span>
                   </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="section-title" data-i18n="section.qrcode">二维码识别</div>
+            <div class="settings-card">
+              <div class="setting-row">
+                <div class="setting-info">
+                  <label for="qrcode-mode-select" data-i18n="label.qrcode_mode">识别结果处理</label>
+                </div>
+                <div class="setting-ctrl">
+                  <select id="qrcode-mode-select" class="form-select">
+                    <option value="copy" data-i18n="qrcode.mode_copy">复制内容到剪贴板</option>
+                    <option value="open" data-i18n="qrcode.mode_open">网址用默认浏览器打开</option>
+                  </select>
                 </div>
               </div>
             </div>

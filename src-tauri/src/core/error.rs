@@ -8,6 +8,8 @@ pub enum SnipLingoError {
     CaptureFailed(String),
     /// 未在选区中检测到可识别的文字
     NoTextDetected,
+    /// 未在选区中检测到二维码
+    NoQrCodeFound,
     /// OCR 识别过程出错
     OcrFailed(String),
     /// 尚未配置翻译 API Key
@@ -21,6 +23,7 @@ impl std::fmt::Display for SnipLingoError {
         match self {
             SnipLingoError::CaptureFailed(msg) => write!(f, "截图失败: {}", msg),
             SnipLingoError::NoTextDetected => write!(f, "未在选区中检测到有效文字"),
+            SnipLingoError::NoQrCodeFound => write!(f, "未在选区中检测到二维码"),
             SnipLingoError::OcrFailed(msg) => write!(f, "OCR 识别失败: {}", msg),
             SnipLingoError::MissingApiKey(msg) => write!(f, "缺少 API Key: {}", msg),
             SnipLingoError::NetworkError(msg) => write!(f, "网络请求失败: {}", msg),

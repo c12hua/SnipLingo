@@ -117,10 +117,7 @@ pub fn handle_hotkey_trigger(app: &AppHandle) {
     // 防死锁机制：若当前全屏截图层已处于展示状态，再次触发热键时直接退出截图并隐藏
     if let Some(win) = app.get_webview_window("capture") {
         if win.is_visible().unwrap_or(false) {
-            #[cfg(target_os = "windows")]
-            crate::core::capture::disable_window_animations(&win);
-            let _ = win.hide();
-            crate::core::capture::clear_capture_state(app);
+            let _ = crate::core::capture::end_capture(app, crate::core::capture::current_capture_id(), true);
             return;
         }
     }

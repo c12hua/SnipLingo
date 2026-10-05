@@ -1,13 +1,33 @@
-use crate::core::capture::{crop_captured_image, SafeCaptureState, SelectionRect};
+use crate::core::capture::{capture_for, clear_capture_state, crop_captured_image, end_capture, is_current_capture, SafeCaptureState, SelectionRect};
 use crate::core::config::load_config;
 use crate::core::error::SnipLingoError;
 use crate::core::ocr::{OcrLineBlock, OcrRect};
 use crate::core::translate::execute_translation;
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, Position, State};
+
+static NEXT_RESULT_REQUEST: AtomicU64 = AtomicU64::new(1);
+static RESULT_REQUEST: AtomicU64 = AtomicU64::new(0);
+static RESULT_CAPTURE: AtomicU64 = AtomicU64::new(0);
+
+pub fn current_result_request_id() -> u64 {
+    RESULT_REQUEST.load(Ordering::SeqCst)
+}
+
+pub fn is_current_result(id: u64) -> bool {
+    id != 0 && current_result_request_id() == id
+}
+
+pub fn emit_ocr_ready(app: &AppHandle, request_id: u64, text: &str) {
+    if is_current_result(request_id) {
+        let _ = app.emit_to("result", "ocr-ready", serde_json::json!({"request_id": request_id, "text": text}));
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TranslationPayload {
+    pub request_id: u64,
     pub original_text: String,
     pub translated_text: String,
 }
@@ -30,6 +50,8 @@ pub struct InPlaceTranslationResult {
     pub width: u32,
     pub height: u32,
     pub scale_factor: f32,
+    pub failed_blocks: usize,
+    pub error: Option<String>,
 }
 
 struct IntermediateBlock {
@@ -112,15 +134,7 @@ fn group_lines_into_blocks(mut lines: Vec<OcrLineBlock>) -> Vec<IntermediateBloc
         return Vec::new();
     }
 
-    // Sort lines top-to-bottom, then left-to-right
-    lines.sort_by(|a, b| {
-        let diff_y = a.rect.y as i32 - b.rect.y as i32;
-        if diff_y.abs() < 6 {
-            a.rect.x.cmp(&b.rect.x)
-        } else {
-            a.rect.y.cmp(&b.rect.y)
-        }
-    });
+    crate::core::ocr::sort_lines_reading_order(&mut lines, 6);
 
     let mut blocks: Vec<IntermediateBlock> = Vec::new();
 
@@ -174,8 +188,13 @@ pub async fn translate_selection(
     app: AppHandle,
     state: State<'_, SafeCaptureState>,
     rect: SelectionRect,
+    capture_id: u64,
+    request_id: u64,
 ) -> Result<TranslationPayload, SnipLingoError> {
     let t_total = std::time::Instant::now();
+    if !is_current_result(request_id) {
+        return Err(SnipLingoError::CaptureFailed("翻译请求已过期".to_string()));
+    }
 
     // 1. 获取锁并裁剪内存中原始位图
     let t_crop = std::time::Instant::now();
@@ -183,9 +202,7 @@ pub async fn translate_selection(
         let lock = state.lock().map_err(|_| {
             SnipLingoError::CaptureFailed("获取截屏缓存锁失败".to_string())
         })?;
-        let capture_state = lock
-            .as_ref()
-            .ok_or_else(|| SnipLingoError::CaptureFailed("未找到当前的截图底图缓存".to_string()))?;
+        let capture_state = capture_for(&lock, capture_id).map_err(SnipLingoError::CaptureFailed)?;
         let crop_res = crop_captured_image(&capture_state.original_image, &rect);
         crop_res.map_err(SnipLingoError::CaptureFailed)?
     };
@@ -201,8 +218,12 @@ pub async fn translate_selection(
     .await
     .map_err(|e| SnipLingoError::OcrFailed(format!("OCR 任务执行异常: {}", e)))??;
 
-    // 渐进式极速上屏：OCR 识别完成瞬间立即通知前端渲染原文，用户体感延迟直降为 0
-    let _ = app.emit("ocr-ready", &text);
+    // OCR 完成后重试只需原文，立即释放本会话的整屏底图。
+    clear_capture_state(&app, capture_id);
+    if !is_current_result(request_id) {
+        return Err(SnipLingoError::CaptureFailed("翻译请求已过期".to_string()));
+    }
+    emit_ocr_ready(&app, request_id, &text);
 
     // 3. 执行翻译 (长连接复用 + 内存高速缓存 + Single-Flight 并发合并)
     let translation = execute_translation(&config, &text).await?;
@@ -210,6 +231,7 @@ pub async fn translate_selection(
     log::debug!("[性能] translate_selection 全链路耗时: {}ms", t_total.elapsed().as_millis());
 
     Ok(TranslationPayload {
+        request_id,
         original_text: text,
         translated_text: translation,
     })
@@ -219,12 +241,17 @@ pub async fn translate_selection(
 pub async fn retry_translate(
     app: AppHandle,
     original_text: String,
+    request_id: u64,
 ) -> Result<TranslationPayload, SnipLingoError> {
-    let _ = app.emit("ocr-ready", &original_text);
+    if !is_current_result(request_id) {
+        return Err(SnipLingoError::CaptureFailed("翻译请求已过期".to_string()));
+    }
+    emit_ocr_ready(&app, request_id, &original_text);
     let config = load_config();
     let translation = execute_translation(&config, &original_text).await?;
 
     Ok(TranslationPayload {
+        request_id,
         original_text,
         translated_text: translation,
     })
@@ -235,24 +262,41 @@ pub fn show_result_window(
     app: AppHandle,
     x: Option<i32>,
     y: Option<i32>,
-) -> Result<(), String> {
+    capture_id: Option<u64>,
+) -> Result<u64, String> {
+    if capture_id.is_some_and(|id| !is_current_capture(id)) {
+        return Err("截图已结束".to_string());
+    }
+    let id = NEXT_RESULT_REQUEST.fetch_add(1, Ordering::Relaxed);
+    RESULT_REQUEST.store(id, Ordering::SeqCst);
+    let previous_capture = RESULT_CAPTURE.swap(capture_id.unwrap_or(0), Ordering::SeqCst);
+    if previous_capture != capture_id.unwrap_or(0) {
+        clear_capture_state(&app, previous_capture);
+    }
     if let Some(win) = app.get_webview_window("result") {
+        let _ = win.emit("translation-started", serde_json::json!({"request_id": id}));
         if let (Some(px), Some(py)) = (x, y) {
             let _ = win.set_position(Position::Physical(PhysicalPosition::new(px, py)));
         }
         let _ = win.show();
         let _ = win.set_focus();
     }
-    Ok(())
+    Ok(id)
 }
 
 #[tauri::command]
-pub fn close_result_window(app: AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("result") {
-        let _ = win.hide();
-    }
-    crate::core::capture::clear_capture_state(&app);
-    Ok(())
+pub fn close_result_window(app: AppHandle, request_id: u64) -> Result<(), String> {
+    let main_app = app.clone();
+    app.run_on_main_thread(move || {
+        if !is_current_result(request_id) { return }
+        RESULT_REQUEST.store(0, Ordering::SeqCst);
+        if let Some(win) = main_app.get_webview_window("result") {
+            let _ = win.hide();
+            let _ = win.emit("translation-closed", request_id);
+        }
+        let capture_id = RESULT_CAPTURE.swap(0, Ordering::SeqCst);
+        let _ = end_capture(&main_app, capture_id, true);
+    }).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -278,6 +322,7 @@ pub async fn translate_in_place(
     _app: AppHandle,
     state: State<'_, SafeCaptureState>,
     rect: SelectionRect,
+    capture_id: u64,
 ) -> Result<InPlaceTranslationResult, SnipLingoError> {
     let t_total = std::time::Instant::now();
 
@@ -287,9 +332,7 @@ pub async fn translate_in_place(
         let lock = state.lock().map_err(|_| {
             SnipLingoError::CaptureFailed("获取截屏缓存锁失败".to_string())
         })?;
-        let capture_state = lock
-            .as_ref()
-            .ok_or_else(|| SnipLingoError::CaptureFailed("未找到当前的截图底图缓存".to_string()))?;
+        let capture_state = capture_for(&lock, capture_id).map_err(SnipLingoError::CaptureFailed)?;
         let crop_res = crop_captured_image(&capture_state.original_image, &rect);
         let cropped = crop_res.map_err(SnipLingoError::CaptureFailed)?;
         (cropped, capture_state.scale_factor)
@@ -351,72 +394,107 @@ pub async fn translate_in_place(
     .await
     .map_err(|e| SnipLingoError::OcrFailed(format!("图像处理线程异常: {}", e)))??;
 
-    // 3. 并发执行翻译请求 (Single-Flight 自动合并相同段落)
+    // 3. 请求入口统一限并发；相同文本仍由 Single-Flight 合并。
+    if !is_current_capture(capture_id) {
+        return Err(SnipLingoError::CaptureFailed("截图已结束".to_string()));
+    }
     let mut tasks = Vec::new();
     for (idx, (block, (bg_color, text_color, font_size_px))) in prepared.grouped.into_iter().zip(prepared.block_styles).enumerate() {
         let raw_block_text = block
             .lines
             .iter()
-            .map(|l| l.text.trim())
+            .map(|l| l.text.as_str())
             .collect::<Vec<_>>()
-            .join(" ");
-        let cleaned_block_text = crate::core::ocr::text_cleaner::clean_ocr_text_with_options(
+            .join("\n");
+        let original_text = crate::core::ocr::text_cleaner::clean_ocr_text_with_options(
             &raw_block_text,
-            false,
+            true,
         );
 
         let cfg = config.clone();
         let rect = block.rect;
         tasks.push(tauri::async_runtime::spawn(async move {
-            let trans_res = execute_translation(&cfg, &cleaned_block_text).await;
-            (
-                idx,
-                cleaned_block_text,
-                trans_res,
+            let trans_res = execute_translation(&cfg, &original_text).await;
+            (InPlaceBlock {
+                id: idx,
+                original_text,
+                translated_text: String::new(),
                 rect,
                 font_size_px,
                 bg_color,
                 text_color,
-            )
+            }, trans_res)
         }));
     }
 
-    let mut result_blocks = Vec::new();
+    let mut completed = Vec::with_capacity(tasks.len());
     for task in tasks {
-        if let Ok((id, original_text, trans_res, rect, font_size_px, bg_color, text_color)) = task.await {
-            let translated_text = match trans_res {
-                Ok(t) => t,
-                Err(_) => original_text.clone(),
-            };
-            result_blocks.push(InPlaceBlock {
-                id,
-                original_text,
-                translated_text,
-                rect,
-                font_size_px,
-                bg_color,
-                text_color,
-            });
-        }
+        completed.push(task.await.map_err(|e| SnipLingoError::NetworkError(format!("翻译任务异常: {}", e)))?);
     }
-
-    result_blocks.sort_by_key(|b| b.id);
-
-    log::debug!("[性能] translate_in_place 全流程耗时: {}ms (文本块数: {})", t_total.elapsed().as_millis(), result_blocks.len());
-
-    Ok(InPlaceTranslationResult {
-        blocks: result_blocks,
+    let mut result = InPlaceTranslationResult {
+        blocks: Vec::with_capacity(completed.len()),
         image_data: prepared.image_data,
         width: prepared.width,
         height: prepared.height,
         scale_factor,
-    })
+        failed_blocks: 0,
+        error: None,
+    };
+    apply_block_translations(&mut result, completed)?;
+    log::debug!("[性能] translate_in_place 全流程耗时: {}ms (文本块数: {})", t_total.elapsed().as_millis(), result.blocks.len());
+    Ok(result)
+}
+
+fn apply_block_translations(
+    result: &mut InPlaceTranslationResult,
+    completed: Vec<(InPlaceBlock, Result<String, SnipLingoError>)>,
+) -> Result<(), SnipLingoError> {
+    let mut first_error = None;
+    for (mut block, translation) in completed {
+        block.translated_text = match translation {
+            Ok(text) => text,
+            Err(error) => {
+                result.failed_blocks += 1;
+                first_error.get_or_insert(error);
+                block.original_text.clone()
+            }
+        };
+        result.blocks.push(block);
+    }
+    if let Some(error) = first_error {
+        if result.failed_blocks == result.blocks.len() { return Err(error) }
+        result.error = Some(error.to_string());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use image::{Rgba, RgbaImage};
+
+    #[test]
+    fn in_place_failures_keep_original_but_are_not_success() {
+        let block = InPlaceBlock {
+            id: 0, original_text: "first line\nsecond line".into(), translated_text: String::new(),
+            rect: OcrRect { x: 0, y: 0, width: 10, height: 10 },
+            font_size_px: 12.0, bg_color: "white".into(), text_color: "black".into(),
+        };
+        let empty = InPlaceTranslationResult {
+            blocks: Vec::new(), image_data: String::new(), width: 10, height: 10,
+            scale_factor: 1.0, failed_blocks: 0, error: None,
+        };
+        let error = SnipLingoError::NetworkError("limited".into());
+        let mut partial = empty.clone();
+        apply_block_translations(&mut partial, vec![
+            (block.clone(), Err(error.clone())), (block.clone(), Ok("translated".into())),
+        ]).unwrap();
+        assert_eq!(partial.blocks[0].translated_text, "first line\nsecond line");
+        assert_eq!(partial.blocks[1].translated_text, "translated");
+        assert_eq!(partial.failed_blocks, 1);
+        assert!(partial.error.is_some());
+        assert_eq!(apply_block_translations(&mut empty.clone(), vec![(block, Err(error.clone()))]), Err(error));
+    }
 
     #[test]
     fn test_group_lines_into_blocks_merge_adjacent() {

@@ -9,11 +9,22 @@ pub fn get_config() -> AppConfig {
 #[tauri::command]
 pub fn save_config_cmd(app: AppHandle, config: AppConfig) -> Result<(), String> {
     let old_config = load_config();
-    if old_config.hotkey != config.hotkey {
+    let hotkey_changed = old_config.hotkey != config.hotkey;
+    if hotkey_changed {
         crate::core::hotkey::update_capture_shortcut(&app, &config.hotkey)?;
+    }
+    if let Err(error) = save_config(&config) {
+        if hotkey_changed {
+            if let Err(e) = crate::core::hotkey::update_capture_shortcut(&app, &old_config.hotkey) {
+                log::error!("恢复原截图快捷键失败: {}", e);
+            }
+        }
+        return Err(error);
+    }
+    if hotkey_changed {
         let _ = crate::core::tray::update_tray_hotkey(&app, &config.hotkey);
     }
-    save_config(&config)
+    Ok(())
 }
 
 #[tauri::command]

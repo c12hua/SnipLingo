@@ -1,4 +1,4 @@
-use tauri::{Manager, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
 
 pub mod commands;
 pub mod core;
@@ -17,6 +17,7 @@ pub fn run() {
             commands::clipboard_cmd::copy_selection_to_clipboard,
             commands::clipboard_cmd::copy_translated_image_cmd,
             commands::ocr_cmd::extract_text_from_selection,
+            commands::qrcode_cmd::recognize_qrcode,
             commands::config_cmd::get_config,
             commands::config_cmd::save_config_cmd,
             commands::config_cmd::test_api_connection,
@@ -38,21 +39,23 @@ pub fn run() {
         ])
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
-            if id.starts_with("pin_trans:") {
-                let label = &id["pin_trans:".len()..];
-                let _ = crate::core::pin::translate_pin(app, label);
-            } else if id.starts_with("pin_copy:") {
-                let label = &id["pin_copy:".len()..];
-                let _ = crate::core::pin::copy_pin_to_clipboard(app, label);
-            } else if id.starts_with("pin_save:") {
-                let label = &id["pin_save:".len()..];
+            if let Some(label) = id.strip_prefix("pin_trans:") {
+                if let Err(e) = crate::core::pin::translate_pin(app, label) {
+                    let _ = app.emit_to(label, "pin-toast", e);
+                }
+            } else if let Some(label) = id.strip_prefix("pin_copy:") {
+                if let Err(e) = crate::core::pin::copy_pin_to_clipboard(app, label) {
+                    let _ = app.emit_to(label, "pin-toast", e);
+                }
+            } else if let Some(label) = id.strip_prefix("pin_save:") {
                 let app_handle = app.clone();
                 let label_str = label.to_string();
                 tauri::async_runtime::spawn(async move {
-                    let _ = crate::commands::save_cmd::save_pin_image_internal(&app_handle, &label_str).await;
+                    if let Err(e) = crate::commands::save_cmd::save_pin_image_internal(&app_handle, &label_str).await {
+                        let _ = app_handle.emit_to(&label_str, "pin-toast", e);
+                    }
                 });
-            } else if id.starts_with("pin_del:") {
-                let label = &id["pin_del:".len()..];
+            } else if let Some(label) = id.strip_prefix("pin_del:") {
                 let _ = crate::core::pin::destroy_pin(app, label);
             } else if id == "pin_del_all" {
                 let _ = crate::core::pin::destroy_all_pins(app);
@@ -128,13 +131,21 @@ pub fn run() {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 // 点击窗口关闭按钮时隐藏窗口，保持应用常驻托盘
                 match window.label() {
-                    "main" | "capture" | "result" => {
+                    "main" => {
                         api.prevent_close();
                         let _ = window.hide();
                     }
-                    label if crate::core::pin::POOLED_PIN_LABELS.contains(&label) => {
+                    "capture" => {
                         api.prevent_close();
-                        let _ = crate::core::pin::destroy_pin(&window.app_handle(), label);
+                        let _ = core::capture::end_capture(window.app_handle(), core::capture::current_capture_id(), true);
+                    }
+                    "result" => {
+                        api.prevent_close();
+                        let _ = commands::translate_cmd::close_result_window(window.app_handle().clone(), commands::translate_cmd::current_result_request_id());
+                    }
+                    label if label == "pin" || label.starts_with("pin_") => {
+                        api.prevent_close();
+                        let _ = crate::core::pin::destroy_pin(window.app_handle(), label);
                     }
                     _ => {}
                 }

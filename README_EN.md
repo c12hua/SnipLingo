@@ -8,7 +8,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue.svg?style=flat-square)](https://www.microsoft.com/windows)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-orange.svg?style=flat-square&logo=tauri)](https://tauri.app/)
-[![Rust](https://img.shields.io/badge/Rust-1.77%2B-red.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.88%2B-red.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](LICENSE)
 
@@ -83,7 +83,7 @@ SnipLingo/
 | :--- | :--- | :--- |
 | **App framework** | **Tauri v2** | Builds the desktop app with Windows WebView2. |
 | **Frontend** | **TypeScript + Vite** | Multi-page UI built with native DOM and CSS. |
-| **Backend** | **Rust 1.77+** | Handles capture, OCR, system calls, and application logic. |
+| **Backend** | **Rust 1.88+** | Handles capture, OCR, system calls, and application logic. |
 | **Screen capture** | **xcap** | Reads display information and captures screen images. |
 | **OCR** | **Windows.Media.Ocr / PP-OCRv6** | Windows-native and PaddleOCR recognition engines. |
 | **Networking** | **Reqwest + Tokio** | Sends translation requests and reuses HTTP connections. |
@@ -95,8 +95,8 @@ SnipLingo/
 ### Requirements
 
 - **Operating system**: Windows 10 / 11 (64-bit)
-- **Node.js**: `>= 18.0.0`
-- **Rust toolchain**: `>= 1.77.2`; `stable-x86_64-pc-windows-msvc` is recommended
+- **Node.js**: `^20.19.0 || >=22.12.0` (required by Vite 8)
+- **Rust toolchain**: `>= 1.88.0` (required by the locked dependencies); `stable-x86_64-pc-windows-msvc` is recommended
 - **C++ build tools**: Visual Studio 2022 Build Tools with the “Desktop development with C++” workload
 - **WebView2**: The runtime is generally included with Windows 10 / 11
 
@@ -122,6 +122,12 @@ Once the app starts, press `F4` to open the capture overlay.
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+Frontend async isolation and resource cleanup checks (Node.js 22.13+, no windows or translation requests):
+
+```powershell
+node scripts/check-ui.mjs
+```
+
 ### Build
  
 - **Full Release (Builds both Installer and Portable ZIP)**:
@@ -138,8 +144,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
   ```
 
 Build artifacts are written to:
-- **Installer**: `src-tauri/target/release/bundle/nsis/SnipLingo_0.1.1_x64-setup.exe`
-- **Portable Package**: `src-tauri/target/release/bundle/SnipLingo_0.1.1_portable.zip` (self-contained, ready to unpack and run)
+- **Installer**: `src-tauri/target/release/bundle/nsis/SnipLingo_0.1.2_x64-setup.exe`
+- **Portable Package**: `src-tauri/target/release/bundle/SnipLingo_0.1.2_portable.zip` (self-contained, ready to unpack and run)
 
 ---
 

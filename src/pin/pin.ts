@@ -17,7 +17,21 @@ const pinImage = document.getElementById("pin-image") as HTMLImageElement;
 const toastEl = document.getElementById("toast") as HTMLDivElement;
 
 let toastTimer: number | undefined;
+let pinGeneration = 0;
+
+function clearPin() {
+  pinGeneration++;
+  pinImage.removeAttribute("src");
+  pinWrapper.classList.remove("has-shadow");
+  pinWrapper.style.opacity = "";
+  clearTimeout(toastTimer);
+  toastTimer = undefined;
+  toastEl.textContent = "";
+  toastEl.classList.add("hidden");
+}
+
 function showToast(msg: string) {
+  if (!pinImage.hasAttribute("src")) return;
   if (toastTimer) clearTimeout(toastTimer);
   toastEl.textContent = msg;
   toastEl.classList.remove("hidden");
@@ -26,7 +40,7 @@ function showToast(msg: string) {
 
 // 1. 初始化与贴图数据应用
 function applyPinData(data: PinData) {
-  if (data && data.image_data) {
+  if (data && data.label === appWindow.label && data.image_data) {
     pinImage.src = data.image_data;
     if (data.has_shadow) {
       pinWrapper.classList.add("has-shadow");
@@ -39,19 +53,25 @@ function applyPinData(data: PinData) {
 }
 
 async function initPin() {
+  const generation = pinGeneration;
   try {
     const data = await invoke<PinData>("get_pin_data", { label: appWindow.label });
-    applyPinData(data);
+    if (generation === pinGeneration) applyPinData(data);
   } catch (err) {
-    console.error("加载贴图数据失败:", err);
+    if (generation === pinGeneration) console.error("加载贴图数据失败:", err);
   }
 }
 
 // 监听复用贴图窗口时的刷新事件：严格校验目标 label 属于当前窗口，绝不覆盖其他贴图
 listen<PinData>("load-pin", (event) => {
   if (event.payload && event.payload.label === appWindow.label) {
+    clearPin();
     applyPinData(event.payload);
   }
+});
+
+listen<string>("clear-pin", (event) => {
+  if (event.payload === appWindow.label) clearPin();
 });
 
 // 监听复制与提示事件
@@ -88,6 +108,7 @@ window.addEventListener("contextmenu", async (e) => {
 
 // 4. 快捷键支持：ESC / Delete 销毁，Ctrl+C 复制，Ctrl+S / T 翻译
 window.addEventListener("keydown", async (e) => {
+  const generation = pinGeneration;
   if (e.key === "Escape" || e.key === "Delete") {
     e.preventDefault();
     await invoke("destroy_pin_window", { label: appWindow.label });
@@ -96,21 +117,21 @@ window.addEventListener("keydown", async (e) => {
     try {
       await invoke("copy_pin_image_cmd", { label: appWindow.label });
     } catch (err) {
-      showToast("复制失败: " + err);
+      if (generation === pinGeneration) showToast("复制失败: " + err);
     }
   } else if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) {
     e.preventDefault();
     try {
       await invoke("save_pin_image_cmd", { label: appWindow.label });
     } catch (err) {
-      showToast("保存失败: " + err);
+      if (generation === pinGeneration) showToast("保存失败: " + err);
     }
   } else if (((e.ctrlKey || e.metaKey) && (e.key === "t" || e.key === "T")) || e.key === "t" || e.key === "T") {
     e.preventDefault();
     try {
       await invoke("translate_pin_cmd", { label: appWindow.label });
     } catch (err) {
-      showToast("翻译失败: " + err);
+      if (generation === pinGeneration) showToast("翻译失败: " + err);
     }
   }
 });

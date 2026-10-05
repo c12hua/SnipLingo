@@ -8,6 +8,7 @@ interface AppConfig {
   hotkey?: string;
   action_copy_shortcut?: string;
   action_ocr_shortcut?: string;
+  action_qrcode_shortcut?: string;
   action_translate_shortcut?: string;
   action_pin_shortcut?: string;
   pin_shadow?: boolean;
@@ -16,6 +17,7 @@ interface AppConfig {
   ocr_lang?: string;
   preserve_line_breaks?: boolean;
   enhance_contrast?: boolean;
+  qrcode_open_in_browser?: boolean;
   in_place_translate?: boolean;
   provider: string;
   api_key: string;
@@ -72,6 +74,8 @@ const actionCopyInput = document.getElementById("action-copy-input") as HTMLInpu
 const btnResetActionCopy = document.getElementById("btn-reset-action-copy") as HTMLButtonElement;
 const actionOcrInput = document.getElementById("action-ocr-input") as HTMLInputElement;
 const btnResetActionOcr = document.getElementById("btn-reset-action-ocr") as HTMLButtonElement;
+const actionQrCodeInput = document.getElementById("action-qrcode-input") as HTMLInputElement;
+const btnResetActionQrCode = document.getElementById("btn-reset-action-qrcode") as HTMLButtonElement;
 const actionTranslateInput = document.getElementById("action-translate-input") as HTMLInputElement;
 const btnResetActionTranslate = document.getElementById("btn-reset-action-translate") as HTMLButtonElement;
 const actionPinInput = document.getElementById("action-pin-input") as HTMLInputElement;
@@ -117,6 +121,7 @@ const ocrEngineSelect = document.getElementById("ocr-engine-select") as HTMLSele
 const ocrLangSelect = document.getElementById("ocr-lang-select") as HTMLSelectElement;
 const preserveLineBreaksCheckbox = document.getElementById("preserve-line-breaks-checkbox") as HTMLInputElement;
 const enhanceContrastCheckbox = document.getElementById("enhance-contrast-checkbox") as HTMLInputElement;
+const qrcodeModeSelect = document.getElementById("qrcode-mode-select") as HTMLSelectElement;
 const btnResetOcr = document.getElementById("btn-reset-ocr") as HTMLButtonElement;
 
 // 通用快捷键录制工具函数
@@ -235,6 +240,9 @@ const copyShortcutRecorder = setupHotkeyRecorder(actionCopyInput, btnResetAction
   if (!isInitializing) saveCurrentConfig("panel-capture");
 });
 const ocrShortcutRecorder = setupHotkeyRecorder(actionOcrInput, btnResetActionOcr, "Ctrl+T", () => {
+  if (!isInitializing) saveCurrentConfig("panel-capture");
+});
+const qrcodeShortcutRecorder = setupHotkeyRecorder(actionQrCodeInput, btnResetActionQrCode, "Ctrl+Q", () => {
   if (!isInitializing) saveCurrentConfig("panel-capture");
 });
 const translateShortcutRecorder = setupHotkeyRecorder(actionTranslateInput, btnResetActionTranslate, "Ctrl+S", () => {
@@ -370,6 +378,7 @@ function collectConfigFromUI(): AppConfig {
     hotkey: hotkeyRecorder.getKey(),
     action_copy_shortcut: copyShortcutRecorder.getKey(),
     action_ocr_shortcut: ocrShortcutRecorder.getKey(),
+    action_qrcode_shortcut: qrcodeShortcutRecorder.getKey(),
     action_translate_shortcut: translateShortcutRecorder.getKey(),
     action_pin_shortcut: pinShortcutRecorder.getKey(),
     pin_shadow: pinShadowCheckbox.checked,
@@ -378,6 +387,7 @@ function collectConfigFromUI(): AppConfig {
     ocr_lang: ocrLangSelect.value,
     preserve_line_breaks: preserveLineBreaksCheckbox.checked,
     enhance_contrast: enhanceContrastCheckbox.checked,
+    qrcode_open_in_browser: qrcodeModeSelect ? qrcodeModeSelect.value === "open" : false,
     in_place_translate: inPlaceTranslateCheckbox ? inPlaceTranslateCheckbox.checked : true,
     provider: currentProvider,
     api_key: activeApiKey,
@@ -469,6 +479,7 @@ if (ocrEngineSelect) {
 ocrLangSelect.addEventListener("change", () => saveCurrentConfig("panel-ocr"));
 preserveLineBreaksCheckbox.addEventListener("change", () => saveCurrentConfig("panel-ocr"));
 enhanceContrastCheckbox.addEventListener("change", () => saveCurrentConfig("panel-ocr"));
+qrcodeModeSelect?.addEventListener("change", () => saveCurrentConfig("panel-ocr"));
 
 // 翻译文本框与下拉选择即时保存监听
 sourceLangSelect?.addEventListener("change", () => saveCurrentConfig("panel-translation"));
@@ -499,6 +510,7 @@ btnResetGeneral.addEventListener("click", async () => {
 btnResetCapture.addEventListener("click", async () => {
   copyShortcutRecorder.setKey("Ctrl+C");
   ocrShortcutRecorder.setKey("Ctrl+T");
+  qrcodeShortcutRecorder.setKey("Ctrl+Q");
   translateShortcutRecorder.setKey("Ctrl+S");
   pinShortcutRecorder.setKey("Ctrl+P");
   await saveCurrentConfig("panel-capture", getRestoredMsg());
@@ -554,6 +566,7 @@ btnResetOcr.addEventListener("click", async () => {
   ocrLangSelect.value = "auto";
   preserveLineBreaksCheckbox.checked = false;
   enhanceContrastCheckbox.checked = true;
+  if (qrcodeModeSelect) qrcodeModeSelect.value = "copy";
   await saveCurrentConfig("panel-ocr", getRestoredMsg());
 });
 
@@ -597,6 +610,7 @@ async function init() {
     // 2. 截屏快捷键配置
     copyShortcutRecorder.setKey(config.action_copy_shortcut || "Ctrl+C");
     ocrShortcutRecorder.setKey(config.action_ocr_shortcut || "Ctrl+T");
+    qrcodeShortcutRecorder.setKey(config.action_qrcode_shortcut || "Ctrl+Q");
     translateShortcutRecorder.setKey(config.action_translate_shortcut || "Ctrl+S");
     pinShortcutRecorder.setKey(config.action_pin_shortcut || "Ctrl+P");
 
@@ -617,6 +631,9 @@ async function init() {
     ocrLangSelect.value = config.ocr_lang || "auto";
     preserveLineBreaksCheckbox.checked = !!config.preserve_line_breaks;
     enhanceContrastCheckbox.checked = config.enhance_contrast !== false;
+    if (qrcodeModeSelect) {
+      qrcodeModeSelect.value = config.qrcode_open_in_browser ? "open" : "copy";
+    }
 
     // 6. 翻译设置与多引擎独立凭据回显
     if (sourceLangSelect) {

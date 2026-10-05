@@ -1,11 +1,22 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use image::RgbaImage;
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size};
 use xcap::Monitor;
 
-/// 本次截图是否已经呈现过覆盖层（前端画好冻结帧后主动呈现，兜底超时也会调用，需幂等）
-static CAPTURE_PRESENTED: AtomicBool = AtomicBool::new(false);
+/// 已呈现的截图编号；旧会话的呈现兜底不能重新打开新窗口。
+static CAPTURE_PRESENTED: AtomicU64 = AtomicU64::new(0);
+static NEXT_CAPTURE_ID: AtomicU64 = AtomicU64::new(1);
+static CURRENT_CAPTURE_ID: AtomicU64 = AtomicU64::new(0);
+static CAPTURE_IN_PROGRESS: Mutex<()> = Mutex::new(());
+
+pub fn current_capture_id() -> u64 {
+    CURRENT_CAPTURE_ID.load(Ordering::SeqCst)
+}
+
+pub fn is_current_capture(id: u64) -> bool {
+    id != 0 && current_capture_id() == id
+}
 
 /// 本次截图热键触发的时刻（epoch 毫秒），用于分段性能日志
 static CAPTURE_START_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -25,6 +36,7 @@ pub fn since_capture_start_ms() -> u64 {
 
 #[derive(Clone, serde::Serialize)]
 pub struct CapturePayload {
+    pub capture_id: u64,
     pub width: u32,
     pub height: u32,
     pub scale_factor: f32,
@@ -61,6 +73,7 @@ pub struct SelectionRect {
 }
 
 pub struct CaptureState {
+    pub id: u64,
     pub original_image: RgbaImage,
     pub monitor_x: i32,
     pub monitor_y: i32,
@@ -68,6 +81,20 @@ pub struct CaptureState {
 }
 
 pub type SafeCaptureState = Mutex<Option<CaptureState>>;
+
+pub fn capture_for(state: &Option<CaptureState>, id: u64) -> Result<&CaptureState, String> {
+    state.as_ref().filter(|s| s.id == id && is_current_capture(id))
+        .ok_or_else(|| "截图已结束或已被新截图替换，请重新选择".to_string())
+}
+
+/// 只采样有效像素，跳过行末填充；黑色不透明帧也有内容。
+#[cfg(any(target_os = "windows", test))]
+fn frame_has_content(data: &[u8], stride: usize, row_pitch: usize) -> bool {
+    data.chunks_exact(row_pitch).any(|row| {
+        row[..stride].as_chunks::<4>().0.iter().step_by(1024)
+            .any(|pixel| pixel.iter().any(|&byte| byte != 0))
+    })
+}
 
 /// 安全无损裁剪内存中的全屏原始位图
 pub fn crop_captured_image(
@@ -145,6 +172,8 @@ pub fn capture_monitor_dxgi(x: i32, y: i32, width: u32, height: u32) -> Option<R
     struct SendDevice(ID3D11Device);
     unsafe impl Send for SendDevice {}
     static D3D_DEVICE: OnceLock<Option<SendDevice>> = OnceLock::new();
+    // ponytail: 预热和截图共用一个 ImmediateContext，读回阶段串行；多路持续采集时再拆独立设备。
+    static CONTEXT_LOCK: Mutex<()> = Mutex::new(());
 
     unsafe {
         // 1. 枚举显卡输出，按桌面矩形定位目标显示器
@@ -237,6 +266,7 @@ pub fn capture_monitor_dxgi(x: i32, y: i32, width: u32, height: u32) -> Option<R
             let mut staging = None;
             device.0.CreateTexture2D(&staging_desc, None, Some(&mut staging)).ok()?;
             let staging = staging?;
+            let context_guard = CONTEXT_LOCK.lock().ok()?;
             context.CopyResource(&staging, &texture);
             let _ = dup.ReleaseFrame();
 
@@ -246,8 +276,8 @@ pub fn capture_monitor_dxgi(x: i32, y: i32, width: u32, height: u32) -> Option<R
                 mapped.pData as *const u8,
                 mapped.RowPitch as usize * height as usize,
             );
-            // 内容采样：真实桌面 BGRA 帧（alpha 恒为 255）不可能全零
-            let has_content = data.iter().step_by(4096).any(|&b| b != 0);
+            // 保留驱动空首帧兜底，但检查完整 BGRA 像素，不能仅抽蓝色通道。
+            let has_content = frame_has_content(data, stride, mapped.RowPitch as usize);
             if has_content {
                 let mut buffer = Vec::with_capacity(stride * height as usize);
                 for row in 0..height as usize {
@@ -257,6 +287,7 @@ pub fn capture_monitor_dxgi(x: i32, y: i32, width: u32, height: u32) -> Option<R
                 rows = Some(buffer);
             }
             context.Unmap(&staging, 0);
+            drop(context_guard);
             if rows.is_some() {
                 if i > 0 {
                     log::info!("DXGI 首帧为空缓冲，重试 {} 次后取到有效帧", i);
@@ -269,12 +300,10 @@ pub fn capture_monitor_dxgi(x: i32, y: i32, width: u32, height: u32) -> Option<R
                 let _ = windows::Win32::Graphics::Gdi::InvalidateRect(None, None, false);
             }
         }
-        let Some(mut buffer) = rows else {
-            return None;
-        };
+        let mut buffer = rows?;
 
         // 4. BGRA → RGBA 原地交换
-        for px in buffer.chunks_exact_mut(4) {
+        for px in buffer.as_chunks_mut::<4>().0 {
             px.swap(0, 2);
         }
         RgbaImage::from_raw(width, height, buffer)
@@ -283,8 +312,21 @@ pub fn capture_monitor_dxgi(x: i32, y: i32, width: u32, height: u32) -> Option<R
 
 /// 截取目标显示器，并将底图推送给 capture 窗口
 pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
+    // 热键和托盘共用入口；重复触发直接忽略，不排队补抓旧请求。
+    let Ok(_in_progress) = CAPTURE_IN_PROGRESS.try_lock() else { return Ok(()) };
+    let id = NEXT_CAPTURE_ID.fetch_add(1, Ordering::Relaxed);
+    let previous = CURRENT_CAPTURE_ID.swap(id, Ordering::SeqCst);
+    clear_capture_state(app, previous);
+    let result = capture_and_present(app, id);
+    if result.is_err() {
+        clear_capture_state(app, id);
+        let _ = CURRENT_CAPTURE_ID.compare_exchange(id, 0, Ordering::SeqCst, Ordering::SeqCst);
+    }
+    result
+}
+
+fn capture_and_present(app: &AppHandle, id: u64) -> Result<(), String> {
     let t_start = std::time::Instant::now();
-    CAPTURE_PRESENTED.store(false, Ordering::SeqCst);
     CAPTURE_START_MS.store(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -367,7 +409,9 @@ pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
     // 2. 将无损原始位图直接暂存在 AppState 中，彻底消除 CPU 耗时的 JPEG 压缩和 Base64 编码，实现急速响应
     if let Some(state) = app.try_state::<SafeCaptureState>() {
         let mut lock = state.lock().map_err(|_| "锁获取失败".to_string())?;
+        if !is_current_capture(id) { return Ok(()) }
         *lock = Some(CaptureState {
+            id,
             original_image: rgba_img,
             monitor_x: mon_x,
             monitor_y: mon_y,
@@ -385,6 +429,7 @@ pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
 
         // 发送屏幕几何参数给前端：前端据此把冻结画面铺满窗口，并初始化选区
         let payload = CapturePayload {
+            capture_id: id,
             width: mon_w,
             height: mon_h,
             scale_factor,
@@ -398,7 +443,7 @@ pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
         let fallback = app.clone();
         tauri::async_runtime::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-            let _ = present_capture_window(&fallback, shell_in_front);
+            let _ = present_capture_window(&fallback, id, shell_in_front);
         });
 
         log::debug!(
@@ -420,83 +465,69 @@ pub fn trigger_capture(app: &AppHandle) -> Result<(), String> {
 /// 会注入 ESC 请其退场，并【轮询确认真正退场后】才返回——前端据此再让画面淡入，
 /// 消除"遮罩先出现、系统界面还浮着"的中间态（普通窗口永远盖不住它们，Z-band 所限）。
 /// 由前端在冻结画面绘制完成后调用；若前端异常，trigger_capture 的兜底超时也会调用。
-pub fn present_capture_window(app: &AppHandle, shell_in_front: bool) -> bool {
-    if CAPTURE_PRESENTED.swap(true, Ordering::SeqCst) {
-        return false;
-    }
-    let Some(win) = app.get_webview_window("capture") else {
-        return false;
-    };
-
-    log::info!("[计时] 前端请求呈现覆盖层: 自热键 {}ms", since_capture_start_ms());
-
-    #[cfg(target_os = "windows")]
-    disable_window_animations(&win);
-
-    // 先让窗口可见（此时前端容器仍是 opacity:0，用户看不到任何东西），
-    // 隐藏窗口无法被激活，必须先 show 才能抢前台。
-    let _ = win.show();
-    let _ = win.set_focus();
-
-    #[cfg(target_os = "windows")]
-    if let Ok(hwnd) = win.hwnd() {
-        let raw = hwnd.0 as isize;
-        // 只能在【拥有该窗口的主线程】上抢前台：从 IPC 线程调用时，
-        // 即使 AttachThreadInput 也会被前台锁拒绝（实测 SetForegroundWindow 返回 false）
-        let (tx, rx) = std::sync::mpsc::channel::<bool>();
-        if app
-            .run_on_main_thread(move || unsafe {
-                let _ = force_overlay_foreground(raw);
-                let shell_now = shell_in_front
-                    || is_system_shell_surface(windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow());
-                // 仅当开始菜单/搜索仍占着前台时才请它退场。
-                // 绝不能在自己的窗口拿到焦点后注入 ESC——overlay 前端会把 ESC 当作退出指令。
-                if is_system_shell_surface(windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow()) {
-                    tap_key(0x1B);
-                }
-                let _ = tx.send(shell_now);
-            })
-            .is_ok()
-        {
-            let shell_now = rx
-                .recv_timeout(std::time::Duration::from_millis(150))
-                .unwrap_or(shell_in_front);
-            if shell_now {
-                // 事件确认替代固定等待：轮询直到系统界面真正退场（上限 600ms 兜底，
-                // ESC 失效时按旧行为继续呈现，只是画面会短暂被系统界面压住）
-                let t_wait = std::time::Instant::now();
-                let deadline = t_wait + std::time::Duration::from_millis(600);
-                let mut shell_remaining;
-                loop {
-                    std::thread::sleep(std::time::Duration::from_millis(25));
-                    shell_remaining = unsafe {
-                        is_system_shell_surface(
-                            windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow(),
-                        )
-                    };
-                    if !shell_remaining || std::time::Instant::now() >= deadline {
-                        break;
-                    }
-                }
-                log::info!(
-                    "系统界面退场确认: 耗时 {}ms{}",
-                    t_wait.elapsed().as_millis(),
-                    if shell_remaining {
-                        " (超时未退场，按旧有兜底继续)"
-                    } else {
-                        ""
-                    }
-                );
-                // 菜单退场后焦点可能落回原应用：收尾再夺回一次前台
-                let _ = app.run_on_main_thread(move || {
-                    let _ = force_overlay_foreground(raw);
-                });
-            }
-            return shell_now;
+pub fn present_capture_window(app: &AppHandle, id: u64, shell_in_front: bool) -> bool {
+    if !is_current_capture(id) { return false }
+    let main_app = app.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    if app.run_on_main_thread(move || {
+        if !is_current_capture(id) || CAPTURE_PRESENTED.swap(id, Ordering::SeqCst) == id {
+            return;
         }
-    }
+        let Some(win) = main_app.get_webview_window("capture") else { return };
+        log::info!("[计时] 前端请求呈现覆盖层: 自热键 {}ms", since_capture_start_ms());
+        #[cfg(target_os = "windows")]
+        disable_window_animations(&win);
+        let _ = win.show();
+        let _ = win.set_focus();
 
-    false
+        #[cfg(target_os = "windows")]
+        if let Ok(hwnd) = win.hwnd() {
+            unsafe {
+                use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+                let _ = force_overlay_foreground(hwnd.0 as isize);
+                let shell_now = is_system_shell_surface(GetForegroundWindow());
+                // 必须仍是系统界面才注入 ESC，不能让自己的 overlay 收到退出键。
+                if shell_now { tap_key(0x1B); }
+                let _ = tx.send(shell_in_front || shell_now);
+                return;
+            }
+        }
+        let _ = tx.send(false);
+    }).is_err() {
+        return false;
+    }
+    let shell_now = rx.recv_timeout(std::time::Duration::from_millis(150)).unwrap_or(false);
+
+    #[cfg(target_os = "windows")]
+    if shell_now {
+        let t_wait = std::time::Instant::now();
+        let deadline = t_wait + std::time::Duration::from_millis(600);
+        let mut shell_remaining;
+        loop {
+            if !is_current_capture(id) { return false }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            shell_remaining = unsafe {
+                is_system_shell_surface(windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow())
+            };
+            if !shell_remaining || std::time::Instant::now() >= deadline { break }
+        }
+        log::info!(
+            "系统界面退场确认: 耗时 {}ms{}",
+            t_wait.elapsed().as_millis(),
+            if shell_remaining { " (超时未退场，按旧有兜底继续)" } else { "" }
+        );
+        let main_app = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            if !is_current_capture(id) { return }
+            if let Some(win) = main_app.get_webview_window("capture") {
+                if !win.is_visible().unwrap_or(false) { return }
+                if let Ok(hwnd) = win.hwnd() {
+                    let _ = force_overlay_foreground(hwnd.0 as isize);
+                }
+            }
+        });
+    }
+    shell_now
 }
 
 /// Windows：在主线程上把覆盖层抬到最前并夺回前台（不含 ESC/退场确认，见 present_capture_window）。
@@ -598,19 +629,61 @@ fn is_system_shell_surface(hwnd: windows::Win32::Foundation::HWND) -> bool {
     class.contains("Windows.UI.Core.CoreWindow") || class.contains("XamlExplorerHostIslandWindow")
 }
 
-/// 释放全屏底图大内存，保持应用常驻运行时的极低内存占用
-pub fn clear_capture_state(app: &AppHandle) {
+fn clear_frame(state: &mut Option<CaptureState>, id: u64) {
+    if state.as_ref().is_some_and(|s| s.id == id) {
+        *state = None;
+    }
+}
+
+/// 只释放操作持有的底图，旧保存/结果窗口不能删除新截图。
+pub fn clear_capture_state(app: &AppHandle, id: u64) {
     if let Some(state) = app.try_state::<SafeCaptureState>() {
         if let Ok(mut lock) = state.lock() {
-            *lock = None;
+            clear_frame(&mut lock, id);
         }
     }
+}
+
+/// 窗口动作在主线程再次检查归属；隐藏可保留底图供后续贴图/翻译使用。
+pub fn end_capture(app: &AppHandle, id: u64, release: bool) -> Result<(), String> {
+    let main_app = app.clone();
+    app.run_on_main_thread(move || {
+        if !is_current_capture(id) { return }
+        CAPTURE_PRESENTED.store(id, Ordering::SeqCst);
+        if let Some(win) = main_app.get_webview_window("capture") {
+            #[cfg(target_os = "windows")]
+            disable_window_animations(&win);
+            let _ = win.hide();
+        }
+        if release {
+            clear_capture_state(&main_app, id);
+            let _ = CURRENT_CAPTURE_ID.compare_exchange(id, 0, Ordering::SeqCst, Ordering::SeqCst);
+            let _ = main_app.emit_to("capture", "capture-ended", id);
+        }
+    }).map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use image::Rgba;
+
+    #[test]
+    fn frame_sampling_and_session_cleanup() {
+        for pixel in [[0, 0, 0, 255], [0, 0, 255, 255], [0, 255, 0, 255]] {
+            assert!(frame_has_content(&pixel.repeat(2048), 8192, 8192));
+        }
+        assert!(!frame_has_content(&[0; 8], 8, 8));
+        assert!(!frame_has_content(&[0, 0, 0, 0, 255, 255, 255, 255], 4, 8));
+        let mut state = Some(CaptureState {
+            id: 2, original_image: RgbaImage::new(1, 1),
+            monitor_x: 0, monitor_y: 0, scale_factor: 1.0,
+        });
+        clear_frame(&mut state, 1);
+        assert_eq!(state.as_ref().unwrap().id, 2);
+        clear_frame(&mut state, 2);
+        assert!(state.is_none());
+    }
 
     #[test]
     fn test_crop_captured_image_valid() {

@@ -2,6 +2,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
 
 interface CapturePayload {
+  capture_id: number;
   width: number;
   height: number;
   scale_factor: number;
@@ -29,6 +30,8 @@ interface InPlaceBlock {
 }
 
 interface InPlaceTranslationResult {
+  failed_blocks: number;
+  error?: string;
   blocks: InPlaceBlock[];
   image_data: string;
   width: number;
@@ -49,6 +52,7 @@ const toolbarTranslate = document.getElementById("toolbar-translate") as HTMLDiv
 
 const btnCopy = document.getElementById("btn-copy") as HTMLButtonElement;
 const btnOcr = document.getElementById("btn-ocr") as HTMLButtonElement;
+const btnQrCode = document.getElementById("btn-qrcode") as HTMLButtonElement;
 const btnPin = document.getElementById("btn-pin") as HTMLButtonElement;
 const btnTranslate = document.getElementById("btn-translate") as HTMLButtonElement;
 const btnSave = document.getElementById("btn-save") as HTMLButtonElement | null;
@@ -70,6 +74,10 @@ const btnBubbleCopy = document.getElementById("btn-bubble-copy") as HTMLButtonEl
 const toastEl = document.getElementById("toast") as HTMLDivElement;
 const btnForceExit = document.getElementById("btn-force-exit") as HTMLButtonElement | null;
 
+let captureId = 0;
+let captureActive = false;
+let generation = 0;
+let closeTimeout: number | undefined;
 let scaleFactor = 1;
 let mode: InteractionMode = "idle";
 let activeHandle: string = "";
@@ -112,15 +120,18 @@ function showToast(msg: string, type: "info" | "warning" | "success" = "info", d
   if (toastTimeout) clearTimeout(toastTimeout);
   toastEl.textContent = msg;
   toastEl.className = `toast ${type}`;
+  const version = generation;
   toastTimeout = window.setTimeout(() => {
-    toastEl.className = "toast hidden";
+    if (version === generation) toastEl.className = "toast hidden";
   }, duration);
 }
 
 /** 复制高亮选中的文字并弹出预览提示（截图中所有“复制选中文本”入口共用） */
 async function copySelectedText(selectedText: string) {
+  const version = generation;
   try {
     await navigator.clipboard.writeText(selectedText);
+    if (version !== generation) return;
     const preview = selectedText.trim().length > 20
       ? selectedText.trim().slice(0, 20) + "..."
       : selectedText.trim();
@@ -129,8 +140,11 @@ async function copySelectedText(selectedText: string) {
       "success",
       1500
     );
+    dismissTextSelection();
   } catch (err) {
+    if (version !== generation) return;
     console.error("复制选中文本失败:", err);
+    showToast("复制失败: " + err, "warning");
   }
 }
 
@@ -146,11 +160,12 @@ function currentRectPx() {
 
 /** 把后端冻结的整屏位图铺到最底层：遮罩之下就是这一帧静态画面。
  *  这样开始菜单 / 搜索等系统界面即使仍在运行，也不会再"浮"在遮罩之上。 */
-async function paintFreezeFrame(width: number, height: number) {
+async function paintFreezeFrame(id: number, width: number, height: number) {
   if (!freezeLayer || width <= 0 || height <= 0) return;
   const ctx = freezeLayer.getContext("2d");
   if (!ctx) return;
-  const bytes = await invoke<ArrayBuffer>("get_capture_frame");
+  const bytes = await invoke<ArrayBuffer>("get_capture_frame", { captureId: id });
+  if (id !== captureId || !captureActive) return;
   freezeLayer.width = width;
   freezeLayer.height = height;
   ctx.putImageData(new ImageData(new Uint8ClampedArray(bytes), width, height), 0, 0);
@@ -162,62 +177,66 @@ async function paintFreezeFrame(width: number, height: number) {
 
 /** 释放冻结画面占用的内存（4K 一帧约 33MB） */
 function clearFreezeFrame() {
-  if (!freezeLayer || !freezeLayer.width) return;
-  freezeLayer.getContext("2d")?.clearRect(0, 0, freezeLayer.width, freezeLayer.height);
+  freezeLayer.width = 0;
+  freezeLayer.height = 0;
 }
 
 // 监听 Rust 后端截屏事件
 listen<CapturePayload>("screenshot-captured", async (event) => {
   const payload = event.payload;
+  if (payload.capture_id <= captureId) return;
+  const id = payload.capture_id;
+  captureId = id;
+  captureActive = true;
   scaleFactor = payload.scale_factor || 1;
-
-  // 关键：每一轮先把上一轮的遮罩与冻结帧清掉。
-  // 因为"再按一次快捷键退出"是后端直接 hide 窗口（不走前端），容器的 .ready 不会被摘掉，
-  // 若不清，下一轮窗口一显示就会先闪出上一轮的旧画面 —— 表现为"先遮罩、后更新"的分段过渡。
-  if (captureContainer) {
-    captureContainer.classList.remove("ready");
-  }
+  captureContainer.classList.remove("ready");
   clearFreezeFrame();
-
-  // 加载并同步最新动作快捷键
-  loadActionShortcuts();
-
-  // 极速重置交互状态
   resetSelection();
+  void loadActionShortcuts();
 
-  if (payload.shell_in_front) {
-    // 开始菜单 / 搜索正占着前台：呈现（后端会请其退场并确认退场后才返回）与铺帧并行做，
-    // 两者都完成后再一次性淡入，消除"系统界面浮在遮罩上"的中间态。
-    const presentPromise = invoke("show_capture_overlay", { shellInFront: true }).catch((err) => {
-      console.error("呈现截图覆盖层失败:", err);
-    });
-    const paintPromise = paintFreezeFrame(payload.width, payload.height).catch((err) => {
-      console.error("绘制冻结画面失败:", err);
-    });
-    await Promise.all([paintPromise, presentPromise]);
-    if (captureContainer) {
+  try {
+    if (payload.shell_in_front) {
+      // 系统菜单退场和铺帧并行，仍需两者完成后才能淡入。
+      const results = await Promise.allSettled([
+        invoke("show_capture_overlay", { captureId: id, shellInFront: true }),
+        paintFreezeFrame(id, payload.width, payload.height),
+      ]);
+      if (id !== captureId || !captureActive) return;
+      for (const result of results) {
+        if (result.status === "rejected") console.error("呈现截图覆盖层失败:", result.reason);
+      }
       captureContainer.classList.add("ready");
-    }
-  } else {
-    // 常规场景：立刻显示遮罩（与旧版一致的体感），冻结帧并行铺上即可 —— 画面此时是静止的，
-    // 铺前铺后肉眼无差别，没必要为它多等一次 8MB 传输。
-    if (captureContainer) {
+    } else {
+      // 普通窗口保留立即呈现的路径，不等待整屏字节传输。
       captureContainer.classList.add("ready");
+      await invoke("show_capture_overlay", { captureId: id }).catch((err) => {
+        if (id === captureId && captureActive) console.error("呈现截图覆盖层失败:", err);
+      });
+      if (id !== captureId || !captureActive) return;
+      await paintFreezeFrame(id, payload.width, payload.height);
     }
-    try {
-      await invoke("show_capture_overlay");
-    } catch (err) {
-      console.error("呈现截图覆盖层失败:", err);
-    }
-    try {
-      await paintFreezeFrame(payload.width, payload.height);
-    } catch (err) {
-      console.error("绘制冻结画面失败:", err);
-    }
+  } catch (err) {
+    if (id !== captureId || !captureActive) return;
+    console.error("呈现截图覆盖层失败:", err);
+    captureContainer.classList.add("ready");
   }
 });
 
+listen<number>("capture-ended", (event) => {
+  if (event.payload === captureId) clearCaptureUI();
+});
+
 function clearTranslationLayer() {
+  generation++;
+  clearTimeout(closeTimeout);
+  clearTimeout(toastTimeout);
+  closeTimeout = undefined;
+  toastTimeout = undefined;
+  toastEl.className = "toast hidden";
+  btnCopy.disabled = false;
+  btnPin.disabled = false;
+  btnCopyTransImg.disabled = false;
+  btnCopyOrigImg.disabled = false;
   currentTranslationResult = null;
   isShowingTranslation = true;
   isTranslatingInPlace = false;
@@ -248,21 +267,30 @@ function resetSelection() {
   maskLayer.classList.remove("has-selection");
 }
 
-async function endCapture(cmd: "close_capture" | "cancel_capture") {
-  if (captureContainer) {
-    captureContainer.classList.remove("ready");
-  }
+function clearCaptureUI() {
+  captureActive = false;
+  captureContainer.classList.remove("ready");
   resetSelection();
   clearFreezeFrame();
-  await invoke(cmd);
-}
-
-async function closeOverlay() {
-  await endCapture("close_capture");
+  dismissTextSelection();
 }
 
 async function cancelOverlay() {
-  await endCapture("cancel_capture");
+  if (!captureActive) return;
+  const id = captureId;
+  clearCaptureUI();
+  try {
+    await invoke("cancel_capture", { captureId: id });
+  } catch (err) {
+    console.error("结束截图失败:", err);
+  }
+}
+
+function scheduleCancel(version: number, delay: number) {
+  clearTimeout(closeTimeout);
+  closeTimeout = window.setTimeout(() => {
+    if (version === generation) void cancelOverlay();
+  }, delay);
 }
 
 function updateSelectionDOM(x: number, y: number, w: number, h: number) {
@@ -317,13 +345,13 @@ function positionToolbar(x: number, y: number, w: number, h: number) {
 // - 鼠标右键：取消选区或退出截图
 // - 鼠标左键：拖拽手柄、平移选区或新建选区
 window.addEventListener("mousedown", async (e) => {
+  if (!captureActive) return;
   // 鼠标右键 (button === 2)
   if (e.button === 2) {
     const selectedText = window.getSelection()?.toString();
     if (selectedText && selectedText.trim().length > 0) {
       e.preventDefault();
       await copySelectedText(selectedText);
-      dismissTextSelection();
       return;
     }
 
@@ -354,9 +382,7 @@ window.addEventListener("mousedown", async (e) => {
   const handleEl = target.closest(".resize-handle") as HTMLElement | null;
   if (handleEl && !selectionBox.classList.contains("hidden")) {
     dismissTextSelection();
-    if (currentTranslationResult) {
-      clearTranslationLayer();
-    }
+    clearTranslationLayer();
     mode = "resizing";
     activeHandle = handleEl.dataset.handle || "";
     dragMouseStartX = e.clientX;
@@ -377,9 +403,7 @@ window.addEventListener("mousedown", async (e) => {
       // 允许用户选中/复制卡片中的文本，不打断平移交互
       return;
     }
-    if (currentTranslationResult) {
-      clearTranslationLayer();
-    }
+    clearTranslationLayer();
     mode = "moving";
     dragMouseStartX = e.clientX;
     dragMouseStartY = e.clientY;
@@ -389,9 +413,7 @@ window.addEventListener("mousedown", async (e) => {
   }
 
   // 3. 点击在选区外部（底图/蒙版），开始绘制全新的选区
-  if (currentTranslationResult) {
-    clearTranslationLayer();
-  }
+  clearTranslationLayer();
   mode = "drawing";
   startX = e.clientX;
   startY = e.clientY;
@@ -483,21 +505,8 @@ window.addEventListener("mouseup", (e) => {
   positionToolbar(currentRect.x, currentRect.y, currentRect.w, currentRect.h);
 });
 
-// 右键快捷菜单拦截：有选中文本时复制，无选区时直接退出截图
-window.addEventListener("contextmenu", async (e) => {
-  e.preventDefault();
-  const selectedText = window.getSelection()?.toString();
-  if (selectedText && selectedText.trim().length > 0) {
-    await copySelectedText(selectedText);
-    hideSelectionBubble();
-    return;
-  }
-  if (currentRect.w >= 10 && currentRect.h >= 10 && !selectionBox.classList.contains("hidden")) {
-    resetSelection();
-  } else {
-    await cancelOverlay();
-  }
-});
+// 右键业务只在 mousedown 处理一次，这里仅禁止浏览器菜单。
+window.addEventListener("contextmenu", (e) => e.preventDefault());
 
 // 双击选区内部：快捷触发翻译 (双击卡片文字除外，允许双击选词)
 selectionBox.addEventListener("dblclick", async (e) => {
@@ -522,131 +531,157 @@ btnForceExit?.addEventListener("click", async (e) => {
 
 // 触发复制到剪贴板流程
 async function triggerCopy() {
-  if (currentRect.w < 10 || currentRect.h < 10) return;
-
-  if (currentTranslationResult?.image_data) {
-    try {
-      await invoke("copy_translated_image_cmd", { dataUrl: currentTranslationResult.image_data });
-      showToast("原图已复制到剪贴板", "success", 1200);
-      setTimeout(async () => {
-        await closeOverlay();
-      }, 300);
-    } catch (err) {
-      console.error("复制图片到剪贴板失败:", err);
-      showToast("复制图片失败: " + err, "warning");
-      setTimeout(async () => {
-        await closeOverlay();
-      }, 1500);
-    }
-    return;
-  }
-
+  if (!captureActive || mode !== "idle" || btnCopy.disabled || currentRect.w < 10 || currentRect.h < 10) return;
+  const id = captureId;
+  const version = generation;
   const rect = currentRectPx();
+  const dataUrl = currentTranslationResult?.image_data;
+  btnCopy.disabled = true;
+  btnCopyOrigImg.disabled = true;
 
   try {
-    await invoke("copy_selection_to_clipboard", { rect });
-    showToast("图片已复制到剪贴板", "success", 1200);
-    setTimeout(async () => {
-      await closeOverlay();
-    }, 400);
+    if (dataUrl) {
+      await invoke("copy_translated_image_cmd", { captureId: id, dataUrl });
+    } else {
+      await invoke("copy_selection_to_clipboard", { captureId: id, rect });
+    }
+    if (version === generation) clearCaptureUI();
   } catch (err) {
-    console.error("复制图片到剪贴板失败:", err);
+    if (version !== generation) return;
+    console.error("复制图片失败:", err);
     showToast("复制图片失败: " + err, "warning");
-    setTimeout(async () => {
-      await closeOverlay();
-    }, 1500);
+  } finally {
+    if (version === generation) {
+      btnCopy.disabled = false;
+      btnCopyOrigImg.disabled = false;
+    }
   }
 }
 
 // 触发获取文本
 async function triggerOcrText() {
-  if (currentRect.w < 10 || currentRect.h < 10) return;
-
+  if (!captureActive || mode !== "idle" || currentRect.w < 10 || currentRect.h < 10) return;
+  const id = captureId;
+  const version = generation;
   const rect = currentRectPx();
-
   showToast("正在提取文本...", "info", 3000);
 
   try {
-    const text = await invoke<string>("extract_text_from_selection", { rect });
+    const text = await invoke<string>("extract_text_from_selection", { captureId: id, rect });
+    if (version !== generation) return;
     const cleanOneLine = text.trim().replace(/\s+/g, " ");
     const preview = cleanOneLine.length > 20 ? cleanOneLine.slice(0, 20) + "..." : cleanOneLine;
     showToast(`文本已复制到剪贴板: "${preview}" (${text.length}字) `, "success", 1500);
-    setTimeout(async () => {
-      await closeOverlay();
-    }, 450);
+    scheduleCancel(version, 450);
   } catch (err: any) {
+    if (version !== generation) return;
     console.error("获取文本失败:", err);
-    showToast("未检测到有效文字", "warning", 2000);
+    showToast(err?.message || String(err), "warning", 2000);
+  }
+}
+
+// 触发二维码识别：按 OCR 设置里的"二维码识别"项决定复制内容还是用默认浏览器打开网址
+async function triggerQrCode() {
+  if (!captureActive || mode !== "idle" || currentRect.w < 10 || currentRect.h < 10) return;
+  const id = captureId;
+  const version = generation;
+  const rect = currentRectPx();
+  showToast("正在识别二维码...", "info", 3000);
+
+  try {
+    const result = await invoke<{ content: string; action: "copied" | "opened" }>("recognize_qrcode", { captureId: id, rect });
+    if (version !== generation) return;
+    const preview = result.content.length > 20 ? result.content.slice(0, 20) + "..." : result.content;
+    showToast(
+      result.action === "opened" ? `已在默认浏览器打开: ${preview}` : `二维码内容已复制: "${preview}"`,
+      "success",
+      1800
+    );
+    scheduleCancel(version, 500);
+  } catch (err: any) {
+    if (version !== generation) return;
+    console.error("识别二维码失败:", err);
+    showToast(err?.message || String(err), "warning", 2000);
   }
 }
 
 // 触发翻译流程
 async function triggerTranslate() {
-  if (currentRect.w < 10 || currentRect.h < 10) return;
-  if (isTranslatingInPlace) return;
-
+  if (!captureActive || mode !== "idle" || currentRect.w < 10 || currentRect.h < 10 || isTranslatingInPlace) return;
+  const id = captureId;
+  const version = generation;
   const rect = currentRectPx();
+  const selection = { ...currentRect };
+  const posX = Math.round((selection.x + selection.w / 2) * scaleFactor - 230);
+  const posY = Math.round((selection.y + selection.h / 2) * scaleFactor - 180);
+  isTranslatingInPlace = true;
+  btnTranslate.disabled = true;
 
-  const centerLogX = currentRect.x + currentRect.w / 2;
-  const centerLogY = currentRect.y + currentRect.h / 2;
-
-  // 读取配置，判断是否开启直接就地覆盖显示译文 (in_place_translate)
-  let inPlace = true;
   try {
-    const config = await invoke<any>("get_config");
-    if (config && config.in_place_translate === false) {
-      inPlace = false;
+    let inPlace = true;
+    try {
+      const config = await invoke<any>("get_config");
+      inPlace = config?.in_place_translate !== false;
+    } catch (err) {
+      if (version !== generation) return;
+      console.error("读取配置失败:", err);
     }
-  } catch (err) {
-    console.error("读取配置失败:", err);
-  }
+    if (version !== generation) return;
 
-  if (!inPlace) {
-    // 弹窗显示模式 (关闭全屏选区，弹出结果窗口)
-    await closeOverlay();
-    const posX = Math.round(centerLogX * scaleFactor - 230);
-    const posY = Math.round(centerLogY * scaleFactor - 180);
-    await invoke("show_result_window", {
-      x: Math.max(20, posX),
-      y: Math.max(20, posY),
-    });
-    await emit("start-translate-flow", rect);
-    return;
-  }
+    if (!inPlace) {
+      // 只隐藏，底图留给结果窗口；异步交接完成前仍校验同一个选区。
+      await invoke("close_capture", { captureId: id });
+      if (version !== generation) return;
+      const requestId = await invoke<number>("show_result_window", {
+        captureId: id,
+        x: Math.max(20, posX),
+        y: Math.max(20, posY),
+      });
+      if (version !== generation) {
+        await invoke("close_result_window", { requestId });
+        return;
+      }
+      await emit("start-translate-flow", { request_id: requestId, capture_id: id, rect });
+      if (version === generation) clearCaptureUI();
+      return;
+    }
 
-  // 就地截图翻译模式
-  try {
-    isTranslatingInPlace = true;
-    btnTranslate.disabled = true;
     btnTranslate.innerHTML = `<span class="tb-spinner"></span>`;
     btnTranslate.title = currentAppLang === "en" ? "Translating..." : "正在翻译中...";
     showToast(currentAppLang === "en" ? "Recognizing and translating..." : "正在识别文字与翻译...", "info", 5000);
 
-    const result = await invoke<InPlaceTranslationResult>("translate_in_place", { rect });
+    const result = await invoke<InPlaceTranslationResult>("translate_in_place", { captureId: id, rect });
+    if (version !== generation) return;
     currentTranslationResult = result;
     isShowingTranslation = true;
-
-    // 渲染覆盖译文卡片
     renderInPlaceBlocks(result);
-
-    // 切换至译文操作工具条
     toolbarNormal.classList.add("hidden");
     toolbarTranslate.classList.remove("hidden");
     updateToggleViewBtnText();
     requestAnimationFrame(() => {
-      positionToolbar(currentRect.x, currentRect.y, currentRect.w, currentRect.h);
+      if (version === generation) positionToolbar(selection.x, selection.y, selection.w, selection.h);
     });
 
-    showToast(currentAppLang === "en" ? "Translation complete" : "翻译完成", "success", 1200);
+    if (result.failed_blocks > 0) {
+      const msg = currentAppLang === "en"
+        ? `${result.failed_blocks} blocks could not be translated; original text retained`
+        : `${result.failed_blocks} 个文本块翻译失败，已保留原文`;
+      showToast(result.error ? `${msg}: ${result.error}` : msg, "warning", 4000);
+    } else {
+      showToast(currentAppLang === "en" ? "Translation complete" : "翻译完成", "success", 1200);
+    }
   } catch (err: any) {
-    console.error("就地翻译失败:", err);
+    if (version !== generation) return;
+    console.error("翻译失败:", err);
     const msg = err?.message || (typeof err === "string" ? err : "未检测到有效文字");
     showToast(msg, "warning", 2500);
   } finally {
-    isTranslatingInPlace = false;
-    btnTranslate.disabled = false;
-    btnTranslate.innerHTML = TRANSLATE_ICON_HTML;
-    btnTranslate.title = getTranslateBtnTitle();
+    if (version === generation) {
+      isTranslatingInPlace = false;
+      btnTranslate.disabled = false;
+      btnTranslate.innerHTML = TRANSLATE_ICON_HTML;
+      btnTranslate.title = getTranslateBtnTitle();
+    }
   }
 }
 
@@ -740,12 +775,18 @@ async function generateTranslatedImageDataUrl(result: InPlaceTranslationResult):
     let curLine = "";
     let curY = ry + padding;
 
-    for (let i = 0; i < text.length; i++) {
-      const testLine = curLine + text[i];
+    for (const char of text.replace(/\r\n?/g, "\n")) {
+      if (char === "\n") {
+        ctx.fillText(curLine, rx + padding, curY);
+        curLine = "";
+        curY += lineHeight;
+        continue;
+      }
+      const testLine = curLine + char;
       const metrics = ctx.measureText(testLine);
       if (metrics.width > maxTextW && curLine.length > 0) {
         ctx.fillText(curLine, rx + padding, curY);
-        curLine = text[i];
+        curLine = char;
         curY += lineHeight;
       } else {
         curLine = testLine;
@@ -789,58 +830,61 @@ function updateToggleViewBtnText() {
 
 // 触发钉在桌面 (贴图) 流程
 async function triggerPin() {
-  if (currentRect.w < 10 || currentRect.h < 10) return;
-
+  if (!captureActive || mode !== "idle" || btnPin.disabled || currentRect.w < 10 || currentRect.h < 10) return;
+  const id = captureId;
+  const version = generation;
   const rect = currentRectPx();
-
-  await closeOverlay();
+  btnPin.disabled = true;
 
   try {
-    await invoke("pin_screenshot", { rect });
+    await invoke("pin_screenshot", { captureId: id, rect });
+    if (version === generation) clearCaptureUI();
   } catch (err) {
+    if (version !== generation) return;
     console.error("钉住截图失败:", err);
     showToast(`${currentAppLang === "en" ? "Pin failed: " : "钉住失败: "}${err}`, "warning", 2500);
+  } finally {
+    if (version === generation) btnPin.disabled = false;
   }
 }
 
-// 触发保存选区图片到本地文件流程 (点击保存后遮罩立即退出让出桌面，若取消则自动恢复现场)
+// 后端只在成功时结束会话；取消保存仍保留选区与冻结画面。
 async function triggerSave() {
-  if (currentRect.w < 10 || currentRect.h < 10) return;
-
+  if (!captureActive || mode !== "idle" || currentRect.w < 10 || currentRect.h < 10) return;
+  const id = captureId;
+  const version = generation;
   const rect = currentRectPx();
 
   try {
-    const savedPath = await invoke<string | null>("save_selection_to_file", { rect });
-    if (savedPath) {
-      // 成功保存：由于遮罩已在后端平滑隐藏，前端直接重置选区状态完成本次会话
-      resetSelection();
-    }
+    const savedPath = await invoke<string | null>("save_selection_to_file", { captureId: id, rect });
+    if (version === generation && savedPath) clearCaptureUI();
   } catch (err: any) {
+    if (version !== generation) return;
     console.error("保存图片失败:", err);
     const failMsg = currentAppLang === "en" ? `Save failed: ${err}` : `保存失败: ${err}`;
     showToast(failMsg, "warning", 2000);
   }
 }
 
-// 触发保存译图到本地文件流程 (点击保存后遮罩立即退出让出桌面，若取消则自动恢复现场)
 async function triggerTransSave() {
-  if (currentRect.w < 10 || currentRect.h < 10) return;
+  if (!captureActive || mode !== "idle" || currentRect.w < 10 || currentRect.h < 10) return;
+  const id = captureId;
+  const version = generation;
+  const rect = currentRectPx();
+  const result = isShowingTranslation ? currentTranslationResult : null;
 
   try {
-    let savedPath: string | null = null;
-    if (isShowingTranslation && currentTranslationResult) {
-      const dataUrl = await generateTranslatedImageDataUrl(currentTranslationResult);
-      savedPath = await invoke<string | null>("save_data_url_to_file", { dataUrl });
+    let savedPath: string | null;
+    if (result) {
+      const dataUrl = await generateTranslatedImageDataUrl(result);
+      if (version !== generation) return;
+      savedPath = await invoke<string | null>("save_data_url_to_file", { captureId: id, dataUrl });
     } else {
-      const rect = currentRectPx();
-      savedPath = await invoke<string | null>("save_selection_to_file", { rect });
+      savedPath = await invoke<string | null>("save_selection_to_file", { captureId: id, rect });
     }
-
-    if (savedPath) {
-      // 成功保存：由于遮罩已在后端平滑隐藏，前端直接重置选区状态完成本次会话
-      resetSelection();
-    }
+    if (version === generation && savedPath) clearCaptureUI();
   } catch (err: any) {
+    if (version !== generation) return;
     console.error("保存图片失败:", err);
     const failMsg = currentAppLang === "en" ? `Save failed: ${err}` : `保存失败: ${err}`;
     showToast(failMsg, "warning", 2000);
@@ -849,6 +893,7 @@ async function triggerTransSave() {
 
 let actionCopyShortcut = "Ctrl+C";
 let actionOcrShortcut = "Ctrl+T";
+let actionQrCodeShortcut = "Ctrl+Q";
 let actionTranslateShortcut = "Ctrl+S";
 let actionPinShortcut = "Ctrl+P";
 
@@ -887,10 +932,13 @@ function matchesShortcut(e: KeyboardEvent, shortcutStr: string): boolean {
 }
 
 async function loadActionShortcuts() {
+  const id = captureId;
   try {
     const config = await invoke<any>("get_config");
+    if (id !== captureId || (id !== 0 && !captureActive)) return;
     if (config.action_copy_shortcut) actionCopyShortcut = config.action_copy_shortcut;
     if (config.action_ocr_shortcut) actionOcrShortcut = config.action_ocr_shortcut;
+    if (config.action_qrcode_shortcut) actionQrCodeShortcut = config.action_qrcode_shortcut;
     if (config.action_translate_shortcut) actionTranslateShortcut = config.action_translate_shortcut;
     if (config.action_pin_shortcut) actionPinShortcut = config.action_pin_shortcut;
 
@@ -902,6 +950,7 @@ async function loadActionShortcuts() {
       if (btnOcr) {
         btnOcr.title = `Extract Text (${actionOcrShortcut})`;
       }
+      if (btnQrCode) btnQrCode.title = `Recognize QR Code (${actionQrCodeShortcut})`;
       btnPin.title = `Pin (${actionPinShortcut})`;
       btnTranslate.title = `Translate (${actionTranslateShortcut} / Enter)`;
       if (btnSave) btnSave.title = "Save Screenshot";
@@ -919,6 +968,7 @@ async function loadActionShortcuts() {
       if (btnOcr) {
         btnOcr.title = `獲取文字 (${actionOcrShortcut})`;
       }
+      if (btnQrCode) btnQrCode.title = `識別二維碼 (${actionQrCodeShortcut})`;
       btnPin.title = `釘住 (${actionPinShortcut})`;
       btnTranslate.title = `翻譯 (${actionTranslateShortcut} / 回車)`;
       if (btnSave) btnSave.title = "儲存截圖";
@@ -936,6 +986,7 @@ async function loadActionShortcuts() {
       if (btnOcr) {
         btnOcr.title = `获取文本 (${actionOcrShortcut})`;
       }
+      if (btnQrCode) btnQrCode.title = `识别二维码 (${actionQrCodeShortcut})`;
       btnPin.title = `钉住 (${actionPinShortcut})`;
       btnTranslate.title = `翻译 (${actionTranslateShortcut} / 回车)`;
       if (btnSave) btnSave.title = "保存截图";
@@ -951,6 +1002,7 @@ async function loadActionShortcuts() {
     }
     updateToggleViewBtnText();
   } catch (err) {
+    if (id !== captureId || (id !== 0 && !captureActive)) return;
     console.error("加载快捷键配置失败:", err);
   }
 }
@@ -959,6 +1011,7 @@ loadActionShortcuts();
 // 键盘快捷键监听：
 // ESC 取消 | 自定义复制截图 | 自定义获取文本 (OCR) | 自定义钉在桌面 | 自定义翻译 (或 Enter)
 window.addEventListener("keydown", async (e) => {
+  if (!captureActive) return;
   if (e.key === "Escape") {
     await cancelOverlay();
     return;
@@ -978,7 +1031,6 @@ window.addEventListener("keydown", async (e) => {
     if (selectedText && selectedText.trim().length > 0) {
       e.preventDefault();
       await copySelectedText(selectedText);
-      dismissTextSelection();
       return;
     }
 
@@ -1007,6 +1059,14 @@ window.addEventListener("keydown", async (e) => {
     } else {
       await triggerOcrText();
     }
+    return;
+  }
+
+  // 识别二维码 (按设置复制内容或打开网址)
+  if (matchesShortcut(e, actionQrCodeShortcut)) {
+    e.preventDefault();
+    dismissTextSelection();
+    await triggerQrCode();
     return;
   }
 
@@ -1066,6 +1126,11 @@ btnOcr?.addEventListener("click", async () => {
   await triggerOcrText();
 });
 
+btnQrCode?.addEventListener("click", async () => {
+  dismissTextSelection();
+  await triggerQrCode();
+});
+
 btnPin.addEventListener("click", async () => {
   dismissTextSelection();
   await triggerPin();
@@ -1090,51 +1155,35 @@ btnToggleView.addEventListener("click", () => {
 });
 
 btnCopyTransImg.addEventListener("click", async () => {
-  if (!currentTranslationResult) return;
-  // 高优先级截图动作立即打断并清除选中文本状态
+  if (!captureActive || !currentTranslationResult || btnCopyTransImg.disabled) return;
+  const id = captureId;
+  const version = generation;
+  const result = currentTranslationResult;
   dismissTextSelection();
   try {
     btnCopyTransImg.disabled = true;
     showToast(currentAppLang === "en" ? "Copying translated image..." : "正在合成译图并复制...", "info", 2000);
-    const dataUrl = await generateTranslatedImageDataUrl(currentTranslationResult);
-    await invoke("copy_translated_image_cmd", { dataUrl });
-    showToast(currentAppLang === "en" ? "Translated image copied!" : "合成译图已复制到剪贴板", "success", 1200);
-    setTimeout(async () => {
-      await closeOverlay();
-    }, 250);
+    const dataUrl = await generateTranslatedImageDataUrl(result);
+    if (version !== generation) return;
+    await invoke("copy_translated_image_cmd", { captureId: id, dataUrl });
+    if (version === generation) clearCaptureUI();
   } catch (err) {
+    if (version !== generation) return;
     console.error("复制译图失败:", err);
     showToast("复制译图失败: " + err, "warning", 2500);
   } finally {
-    btnCopyTransImg.disabled = false;
+    if (version === generation) btnCopyTransImg.disabled = false;
   }
 });
 
 btnCopyOrigImg.addEventListener("click", async () => {
   dismissTextSelection();
-  try {
-    btnCopyOrigImg.disabled = true;
-    if (currentTranslationResult?.image_data) {
-      showToast(currentAppLang === "en" ? "Copying original image..." : "正在复制原图...", "info", 1500);
-      await invoke("copy_translated_image_cmd", { dataUrl: currentTranslationResult.image_data });
-    } else {
-      const rect = currentRectPx();
-      await invoke("copy_selection_to_clipboard", { rect });
-    }
-    showToast(currentAppLang === "en" ? "Original image copied!" : "原图已复制到剪贴板", "success", 1200);
-    setTimeout(async () => {
-      await closeOverlay();
-    }, 250);
-  } catch (err) {
-    console.error("复制原图失败:", err);
-    showToast("复制原图失败: " + err, "warning", 2500);
-  } finally {
-    btnCopyOrigImg.disabled = false;
-  }
+  await triggerCopy();
 });
 
 btnCopyTransText.addEventListener("click", async () => {
-  if (!currentTranslationResult || currentTranslationResult.blocks.length === 0) return;
+  if (!captureActive || !currentTranslationResult || currentTranslationResult.blocks.length === 0) return;
+  const version = generation;
   dismissTextSelection();
 
   const isTrans = isShowingTranslation;
@@ -1145,6 +1194,7 @@ btnCopyTransText.addEventListener("click", async () => {
 
   try {
     await navigator.clipboard.writeText(fullText);
+    if (version !== generation) return;
     const successMsg = currentAppLang === "en"
       ? (isTrans ? "Translated text copied to clipboard" : "Original text copied to clipboard")
       : currentAppLang === "zh-TW"
@@ -1152,6 +1202,7 @@ btnCopyTransText.addEventListener("click", async () => {
       : (isTrans ? "译文已复制到剪贴板" : "原文已复制到剪贴板");
     showToast(successMsg, "success", 1500);
   } catch (err) {
+    if (version !== generation) return;
     console.error("复制文本失败:", err);
     showToast("复制失败", "warning");
   }
@@ -1198,5 +1249,4 @@ btnBubbleCopy?.addEventListener("click", async (e) => {
   if (selectedText && selectedText.trim().length > 0) {
     await copySelectedText(selectedText);
   }
-  dismissTextSelection();
 });

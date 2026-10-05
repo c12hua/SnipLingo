@@ -1,6 +1,6 @@
 {
   "name": "sniplingo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "SnipLingo Desktop Screenshot & Translation Assistant",
   "type": "module",
   "scripts": {

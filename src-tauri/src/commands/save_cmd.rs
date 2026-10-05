@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager, State};
-use crate::core::capture::{crop_captured_image, SafeCaptureState, SelectionRect};
+use crate::core::capture::{capture_for, crop_captured_image, end_capture, is_current_capture, SafeCaptureState, SelectionRect};
 use crate::core::pin::SafePinStorage;
 
 /// 生成带当前时间戳的默认截图文件名，例如 SnipLingo_20260928_145520.png
@@ -74,16 +74,11 @@ async fn prompt_save_file_dialog(default_name: String) -> Result<Option<PathBuf>
     .map_err(|e| format!("保存对话框启动失败: {}", e))
 }
 
-fn hide_capture_window(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window("capture") {
-        #[cfg(target_os = "windows")]
-        crate::core::capture::disable_window_animations(&win);
-        let _ = win.hide();
-    }
-}
-
-fn restore_capture_window(app: &AppHandle) {
-    if let Some(win) = app.get_webview_window("capture") {
+pub(crate) fn restore_capture_window(app: &AppHandle, capture_id: u64) {
+    let main_app = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if !is_current_capture(capture_id) { return }
+        let Some(win) = main_app.get_webview_window("capture") else { return };
         #[cfg(target_os = "windows")]
         crate::core::capture::disable_window_animations(&win);
 
@@ -114,7 +109,30 @@ fn restore_capture_window(app: &AppHandle) {
                 }
             }
         }
+    });
+}
+
+async fn save_image_in_background(img: image::RgbaImage, path: PathBuf) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        save_rgba_image_to_path(&img, &path)?;
+        Ok(path.to_string_lossy().into_owned())
+    }).await.map_err(|e| format!("保存图片任务失败: {}", e))?
+}
+
+async fn save_capture_image(app: &AppHandle, img: image::RgbaImage, capture_id: u64) -> Result<Option<String>, String> {
+    if !is_current_capture(capture_id) { return Err("截图已结束".to_string()) }
+    end_capture(app, capture_id, false)?;
+    let result = async {
+        match prompt_save_file_dialog(generate_default_screenshot_filename()).await? {
+            Some(path) => save_image_in_background(img, path).await.map(Some),
+            None => Ok(None),
+        }
+    }.await;
+    match &result {
+        Ok(Some(_)) => end_capture(app, capture_id, true)?,
+        _ => restore_capture_window(app, capture_id),
     }
+    result
 }
 
 #[tauri::command]
@@ -122,77 +140,31 @@ pub async fn save_selection_to_file(
     app: AppHandle,
     state: State<'_, SafeCaptureState>,
     rect: SelectionRect,
+    capture_id: u64,
 ) -> Result<Option<String>, String> {
-    // 1. 获取选区裁剪图像
     let cropped = {
         let lock = state.lock().map_err(|_| "获取截屏缓存锁失败".to_string())?;
-        let capture_state = lock
-            .as_ref()
-            .ok_or_else(|| "未找到当前的截图底图缓存".to_string())?;
-        crop_captured_image(&capture_state.original_image, &rect)?
+        crop_captured_image(&capture_for(&lock, capture_id)?.original_image, &rect)?
     };
-
-    // 2. 立即退出（隐藏）截图遮罩窗口，让出干净清晰的桌面，消除 HWND_TOPMOST 遮挡系统保存窗口的问题
-    hide_capture_window(&app);
-
-    // 3. 唤出原生保存对话框
-    let default_name = generate_default_screenshot_filename();
-    let chosen_path = prompt_save_file_dialog(default_name).await?;
-
-    if let Some(path) = chosen_path {
-        if let Err(e) = save_rgba_image_to_path(&cropped, &path) {
-            restore_capture_window(&app);
-            return Err(e);
-        }
-        let display_path = path.to_string_lossy().to_string();
-        crate::core::capture::clear_capture_state(&app);
-        log::info!("选区截图已成功保存到文件: {}", display_path);
-        Ok(Some(display_path))
-    } else {
-        // 用户在保存对话框中点击了“取消”：优雅恢复截图遮罩与选区现场，避免丢失已有选区
-        restore_capture_window(&app);
-        Ok(None)
-    }
+    save_capture_image(&app, cropped, capture_id).await
 }
 
 #[tauri::command]
 pub async fn save_data_url_to_file(
     app: AppHandle,
     data_url: String,
+    capture_id: u64,
 ) -> Result<Option<String>, String> {
-    let base64_data = if let Some(idx) = data_url.find(',') {
-        &data_url[idx + 1..]
-    } else {
-        &data_url
-    };
-    use base64::Engine;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(base64_data.trim())
-        .map_err(|e| format!("Base64 解码失败: {}", e))?;
-    let img = image::load_from_memory(&bytes)
-        .map_err(|e| format!("解析图片格式失败: {}", e))?
-        .to_rgba8();
-
-    // 立即退出（隐藏）截图遮罩窗口
-    hide_capture_window(&app);
-
-    let default_name = generate_default_screenshot_filename();
-    let chosen_path = prompt_save_file_dialog(default_name).await?;
-
-    if let Some(path) = chosen_path {
-        if let Err(e) = save_rgba_image_to_path(&img, &path) {
-            restore_capture_window(&app);
-            return Err(e);
-        }
-        let display_path = path.to_string_lossy().to_string();
-        crate::core::capture::clear_capture_state(&app);
-        log::info!("合成译图已成功保存到文件: {}", display_path);
-        Ok(Some(display_path))
-    } else {
-        // 用户取消，恢复现场
-        restore_capture_window(&app);
-        Ok(None)
-    }
+    if !is_current_capture(capture_id) { return Err("截图已结束".to_string()) }
+    let img = tokio::task::spawn_blocking(move || -> Result<image::RgbaImage, String> {
+        let base64_data = data_url.split_once(',').map_or(data_url.as_str(), |(_, data)| data);
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(base64_data.trim()).map_err(|e| format!("Base64 解码失败: {}", e))?;
+        image::load_from_memory(&bytes)
+            .map(|img| img.to_rgba8()).map_err(|e| format!("解析图片格式失败: {}", e))
+    }).await.map_err(|e| format!("图片解码任务失败: {}", e))??;
+    save_capture_image(&app, img, capture_id).await
 }
 
 #[tauri::command]
@@ -218,8 +190,7 @@ pub async fn save_pin_image_internal(
     let chosen_path = prompt_save_file_dialog(default_name).await?;
 
     if let Some(path) = chosen_path {
-        save_rgba_image_to_path(&cropped, &path)?;
-        let display_path = path.to_string_lossy().to_string();
+        let display_path = save_image_in_background(cropped, path).await?;
         let _ = app.emit_to(label, "pin-toast", "图片已保存".to_string());
         log::info!("贴图 [{}] 已成功保存到文件: {}", label, display_path);
         Ok(Some(display_path))

@@ -22,6 +22,19 @@ pub struct OcrLineBlock {
     pub confidence: f32,
 }
 
+/// 先按全序排列，再以每行首个 y 为锚点分组，避免两两“接近”比较不满足传递性。
+// ponytail: 沿用固定像素同行容差；多栏/倾斜版面需要时再升级为版面分析。
+pub fn sort_lines_reading_order(lines: &mut [OcrLineBlock], tolerance: u32) {
+    lines.sort_by_key(|line| (line.rect.y, line.rect.x));
+    let mut start = 0;
+    while start < lines.len() {
+        let y = lines[start].rect.y;
+        let end = start + lines[start..].partition_point(|line| line.rect.y - y < tolerance.max(1));
+        lines[start..end].sort_by_key(|line| (line.rect.x, line.rect.y));
+        start = end;
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct DetailedOcrResult {
     pub full_text: String,
@@ -30,7 +43,7 @@ pub struct DetailedOcrResult {
 
 /// 可插拔 OCR 引擎 Trait
 pub trait OcrEngine: Send + Sync {
-    /// 纯文本识别（向后兼容）
+    /// 保留识别行的原文；合并行只在翻译请求入口进行。
     fn recognize(&self, img: &RgbaImage) -> Result<String, SnipLingoError> {
         self.recognize_detailed(img).map(|res| res.full_text)
     }
@@ -48,12 +61,10 @@ pub fn get_ocr_engine(config: &AppConfig) -> Box<dyn OcrEngine> {
         "paddleocr" => Box::new(PaddleOcrEngine::with_options(
             ppocr_rs::PpOcrVersion::V6Tiny,
             config.enhance_contrast,
-            config.preserve_line_breaks,
         )),
         _ => Box::new(WindowsMediaOcr::with_options(
             config.ocr_lang.clone(),
             config.enhance_contrast,
-            config.preserve_line_breaks,
         )),
     }
 }
@@ -73,5 +84,24 @@ pub fn warmup_ocr_engine(config: &AppConfig) {
         } else {
             log::info!("PaddleOCR 本地模型尚未下载，跳过后台静默推理预热");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reading_order_has_stable_rows() {
+        for tolerance in [6, 12] {
+            let mut lines: Vec<_> = [(10, 8), (30, 0), (20, 4)].into_iter().map(|(x, y)| OcrLineBlock {
+                text: x.to_string(), rect: OcrRect { x, y: y * tolerance / 6, width: 8, height: 4 }, confidence: 1.0,
+            }).collect();
+            sort_lines_reading_order(&mut lines, tolerance);
+            assert_eq!(lines.iter().map(|l| l.rect.x).collect::<Vec<_>>(), [20, 30, 10]);
+            sort_lines_reading_order(&mut lines, tolerance);
+            assert_eq!(lines.iter().map(|l| l.rect.x).collect::<Vec<_>>(), [20, 30, 10]);
+        }
+        sort_lines_reading_order(&mut [], 0);
     }
 }

@@ -1,15 +1,14 @@
 use std::collections::HashMap;
-use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use base64::Engine;
-use image::{DynamicImage, ImageFormat, RgbaImage};
+use image::{ImageEncoder, RgbaImage};
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, Position, Size, WebviewUrl,
     WebviewWindowBuilder,
 };
 
-use crate::core::capture::{crop_captured_image, disable_window_animations, SafeCaptureState, SelectionRect};
+use crate::core::capture::{capture_for, crop_captured_image, disable_window_animations, end_capture, is_current_capture, SafeCaptureState, SelectionRect};
 use crate::core::config::load_config;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
@@ -34,36 +33,23 @@ pub const POOLED_PIN_LABELS: &[&str] = &[
 ];
 
 /// 截取当前选区并作为无框窗口钉在桌面上
-pub fn pin_selection_image(app: &AppHandle, rect: &SelectionRect) -> Result<String, String> {
-    // 无论后续执行如何，优先确保截图 overlay 退出让出桌面
-    if let Some(capture_win) = app.get_webview_window("capture") {
-        let _ = capture_win.hide();
-    }
-
+pub async fn pin_selection_image(app: &AppHandle, rect: &SelectionRect, capture_id: u64) -> Result<String, String> {
     let capture_state = app.try_state::<SafeCaptureState>().ok_or("未找到截图状态")?;
     let (cropped, mon_x, mon_y, scale_factor) = {
-        let mut lock = capture_state.lock().map_err(|_| "锁获取失败".to_string())?;
-        let state = lock.as_ref().ok_or("当前无可用的截屏数据")?;
-        let crop_res = crop_captured_image(&state.original_image, rect);
-        let mon_x = state.monitor_x;
-        let mon_y = state.monitor_y;
-        let scale_factor = state.scale_factor;
-        *lock = None;
-        let cropped = crop_res?;
-        (cropped, mon_x, mon_y, scale_factor)
+        let lock = capture_state.lock().map_err(|_| "锁获取失败".to_string())?;
+        let state = capture_for(&lock, capture_id)?;
+        (crop_captured_image(&state.original_image, rect)?, state.monitor_x, state.monitor_y, state.scale_factor)
     };
-
-    // 编码为无损 PNG base64
-    let dynamic_img = DynamicImage::ImageRgba8(cropped.clone());
-    let mut png_bytes: Vec<u8> = Vec::new();
-    dynamic_img
-        .write_to(&mut Cursor::new(&mut png_bytes), ImageFormat::Png)
-        .map_err(|e| format!("图像编码失败: {}", e))?;
-
-    let base64_str = format!(
-        "data:image/png;base64,{}",
-        base64::engine::general_purpose::STANDARD.encode(&png_bytes)
-    );
+    end_capture(app, capture_id, false)?;
+    let (cropped, base64_str) = tokio::task::spawn_blocking(move || -> Result<_, String> {
+        let mut png_bytes = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png_bytes)
+            .write_image(cropped.as_raw(), cropped.width(), cropped.height(), image::ExtendedColorType::Rgba8)
+            .map_err(|e| format!("图像编码失败: {}", e))?;
+        let base64_str = format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&png_bytes));
+        Ok((cropped, base64_str))
+    }).await.map_err(|e| format!("贴图编码任务失败: {}", e))??;
+    if !is_current_capture(capture_id) { return Err("截图已结束".to_string()) }
 
     let config = load_config();
     let has_shadow = config.pin_shadow;
@@ -72,8 +58,8 @@ pub fn pin_selection_image(app: &AppHandle, rect: &SelectionRect) -> Result<Stri
     // 物理坐标与尺寸定位
     let phys_x = mon_x + rect.x as i32;
     let phys_y = mon_y + rect.y as i32;
-    let phys_w = rect.width;
-    let phys_h = rect.height;
+    let phys_w = cropped.width();
+    let phys_h = cropped.height();
 
     // 若开启阴影，预留轻微四周外边距防止阴影裁切；若关闭，100% 精确零间隙物理贴合
     let shadow_padding = if has_shadow {
@@ -147,19 +133,28 @@ pub fn pin_selection_image(app: &AppHandle, rect: &SelectionRect) -> Result<Stri
             .resizable(false)
             .visible(false)
             .build()
-            .map_err(|e| format!("创建贴图窗口失败: {}", e))?;
+            .map_err(|e| {
+                let _ = destroy_pin(app, &target_label);
+                format!("创建贴图窗口失败: {}", e)
+            })?;
         // hwnd() 会等待主线程完成真实窗口创建；动画禁用赶在 show 之前生效
         #[cfg(target_os = "windows")]
         disable_window_animations(&win);
         win
     };
 
-    let _ = target_win.set_position(Position::Physical(PhysicalPosition::new(win_x, win_y)));
-    let _ = target_win.set_size(Size::Physical(PhysicalSize::new(win_w, win_h)));
-    let _ = app.emit_to(&target_label, "load-pin", pin_data);
-    let _ = target_win.show();
-    let _ = target_win.set_focus();
-
+    let shown = (|| -> tauri::Result<()> {
+        target_win.set_position(Position::Physical(PhysicalPosition::new(win_x, win_y)))?;
+        target_win.set_size(Size::Physical(PhysicalSize::new(win_w, win_h)))?;
+        app.emit_to(&target_label, "load-pin", pin_data)?;
+        target_win.show()?;
+        target_win.set_focus()
+    })();
+    if let Err(e) = shown {
+        let _ = destroy_pin(app, &target_label);
+        return Err(format!("显示贴图失败: {}", e));
+    }
+    end_capture(app, capture_id, true)?;
     log::info!("贴图窗口 [{}] 显示成功", target_label);
     Ok(target_label)
 }
@@ -184,6 +179,7 @@ pub fn destroy_pin(app: &AppHandle, label: &str) -> Result<(), String> {
     }
     if let Some(win) = app.get_webview_window(label) {
         if POOLED_PIN_LABELS.contains(&label) {
+            let _ = app.emit_to(label, "clear-pin", label);
             let _ = win.hide();
         } else {
             let _ = win.destroy();
@@ -194,23 +190,14 @@ pub fn destroy_pin(app: &AppHandle, label: &str) -> Result<(), String> {
 
 /// 销毁所有贴图窗口
 pub fn destroy_all_pins(app: &AppHandle) -> Result<(), String> {
-    if let Some(storage) = app.try_state::<SafePinStorage>() {
-        if let Ok(mut lock) = storage.lock() {
-            for label in POOLED_PIN_LABELS {
-                if let Some(win) = app.get_webview_window(label) {
-                    let _ = win.hide();
-                }
-            }
-            for label in lock.pins.keys().cloned().collect::<Vec<_>>() {
-                if !POOLED_PIN_LABELS.contains(&label.as_str()) {
-                    if let Some(win) = app.get_webview_window(&label) {
-                        let _ = win.destroy();
-                    }
-                }
-            }
-            lock.pins.clear();
-        }
-    }
+    let labels = if let Some(storage) = app.try_state::<SafePinStorage>() {
+        let lock = storage.lock().map_err(|_| "锁获取失败".to_string())?;
+        lock.pins.keys().cloned().collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    // 与单张关闭共用清理；不持有存储锁等待窗口线程。
+    for label in labels { destroy_pin(app, &label)?; }
     Ok(())
 }
 
@@ -242,44 +229,35 @@ pub fn translate_pin(app: &AppHandle, label: &str) -> Result<(), String> {
         (img.clone(), pos)
     };
 
-    // 1. 根据当前配置使用指定 OCR 引擎提取文字
+    use crate::commands::translate_cmd::{emit_ocr_ready, is_current_result, show_result_window, TranslationPayload};
+    use crate::core::error::SnipLingoError;
     let config = load_config();
-    let ocr = crate::core::ocr::get_ocr_engine(&config);
-    let raw_text = ocr.recognize(&cropped).map_err(|e| e.to_string())?;
-    let cleaned_text = crate::core::ocr::text_cleaner::clean_ocr_text_with_options(&raw_text, config.preserve_line_breaks);
-
-    if cleaned_text.trim().is_empty() {
-        let _ = app.emit_to(label, "pin-toast", "选区内未发现可识别文字".to_string());
-        return Err("选区内未发现可识别的文字内容".to_string());
-    }
-
-    // 2. 调起翻译浮窗
     let x = win_pos.map(|p| p.x).unwrap_or(100);
     let y = win_pos.map(|p| p.y).unwrap_or(100);
-
-    if let Some(res_win) = app.get_webview_window("result") {
-        let _ = res_win.set_position(Position::Physical(PhysicalPosition::new(x, y)));
-        let _ = res_win.show();
-        let _ = res_win.set_focus();
-
-        let app_handle = app.clone();
-        let text = cleaned_text.clone();
-        tauri::async_runtime::spawn(async move {
-            let res = crate::core::translate::execute_translation(&config, &text).await;
-            match res {
-                Ok(trans_text) => {
-                    let payload = crate::commands::translate_cmd::TranslationPayload {
-                        original_text: text,
-                        translated_text: trans_text,
-                    };
-                    let _ = app_handle.emit("translation-result", payload);
-                }
-                Err(err) => {
-                    let _ = app_handle.emit("translation-error", err);
-                }
+    let request_id = show_result_window(app.clone(), Some(x), Some(y), None)?;
+    let app = app.clone();
+    let label = label.to_string();
+    tauri::async_runtime::spawn(async move {
+        let result = async {
+            let cfg = config.clone();
+            let text = tokio::task::spawn_blocking(move || {
+                crate::core::ocr::get_ocr_engine(&cfg).recognize(&cropped)
+            }).await.map_err(|e| SnipLingoError::OcrFailed(format!("OCR 任务异常: {}", e)))??;
+            if !is_current_result(request_id) {
+                return Err(SnipLingoError::CaptureFailed("翻译请求已过期".to_string()));
             }
-        });
-    }
-
+            emit_ocr_ready(&app, request_id, &text);
+            let translated_text = crate::core::translate::execute_translation(&config, &text).await?;
+            Ok(TranslationPayload { request_id, original_text: text, translated_text })
+        }.await;
+        if !is_current_result(request_id) { return }
+        match result {
+            Ok(payload) => { let _ = app.emit_to("result", "translation-result", payload); }
+            Err(error) => {
+                let _ = app.emit_to(&label, "pin-toast", error.to_string());
+                let _ = app.emit_to("result", "translation-error", serde_json::json!({"request_id": request_id, "error": error}));
+            }
+        }
+    });
     Ok(())
 }

@@ -12,7 +12,6 @@ use windows::Storage::Streams::DataWriter;
 pub struct WindowsMediaOcr {
     ocr_lang: String,
     enhance_contrast: bool,
-    preserve_line_breaks: bool,
 }
 
 impl WindowsMediaOcr {
@@ -20,15 +19,13 @@ impl WindowsMediaOcr {
         Self {
             ocr_lang: "auto".to_string(),
             enhance_contrast: true,
-            preserve_line_breaks: false,
         }
     }
 
-    pub fn with_options(ocr_lang: String, enhance_contrast: bool, preserve_line_breaks: bool) -> Self {
+    pub fn with_options(ocr_lang: String, enhance_contrast: bool) -> Self {
         Self {
             ocr_lang,
             enhance_contrast,
-            preserve_line_breaks,
         }
     }
 
@@ -154,7 +151,7 @@ impl OcrEngine for WindowsMediaOcr {
         // 5. 异步调用 Windows Media OCR
         let async_op = cap_err(engine.RecognizeAsync(&bitmap), "发起 OCR 识别失败")?;
         let result = cap_err(async_op.get(), "等待 OCR 结果失败")?;
-        let raw_text = cap_err(result.Text(), "提取文本失败")?.to_string();
+        let mut raw_text = String::new();
         let infer_ms = t_infer.elapsed().as_millis();
 
         // 6. 提取行级包围盒 (汇总每行词级 BoundingRect)
@@ -167,6 +164,9 @@ impl OcrEngine for WindowsMediaOcr {
                         if line_text.trim().is_empty() {
                             continue;
                         }
+                        // 整体 Text() 可能已合并换行，按识别行重建展示/复制原文。
+                        if !raw_text.is_empty() { raw_text.push('\n'); }
+                        raw_text.push_str(&line_text);
 
                         let mut min_x = f32::MAX;
                         let mut min_y = f32::MAX;
@@ -207,8 +207,11 @@ impl OcrEngine for WindowsMediaOcr {
             }
         }
 
-        // 7. 智能文本清洗与排版格式优化
-        let cleaned = clean_ocr_text_with_options(&raw_text, self.preserve_line_breaks);
+        // 行数据不可用时保留整体文本回退，但不再主动合并原文换行。
+        if raw_text.is_empty() {
+            raw_text = cap_err(result.Text(), "提取文本失败")?.to_string();
+        }
+        let cleaned = clean_ocr_text_with_options(&raw_text, true);
         if cleaned.is_empty() {
             return Err(SnipLingoError::NoTextDetected);
         }

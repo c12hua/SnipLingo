@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 interface TranslationPayload {
+  request_id: number;
   original_text: string;
   translated_text: string;
 }
@@ -12,6 +13,12 @@ interface SelectionRect {
   y: number;
   width: number;
   height: number;
+}
+
+interface SelectionRequest {
+  request_id: number;
+  capture_id: number;
+  rect: SelectionRect;
 }
 
 interface ErrorPayload {
@@ -54,11 +61,58 @@ let currentTranslatedText = "";
 let rawOriginalText = "";
 let isPreserveBreaks = false;
 let lastRect: SelectionRect | null = null;
+let lastCaptureId: number | null = null;
 let currentAppLang = "zh-CN";
+let latestRequestId = 0;
+let closeGeneration = 0;
+let requestOpen = false;
+let translationFinished = false;
+let originalCopyTimer: number | undefined;
+let translationCopyTimer: number | undefined;
 
-async function loadI18n() {
+function isCurrentRequest(requestId: number) {
+  return requestOpen && requestId === latestRequestId;
+}
+
+function resetResult() {
+  currentOriginalText = "";
+  currentTranslatedText = "";
+  rawOriginalText = "";
+  lastRect = null;
+  lastCaptureId = null;
+  isPreserveBreaks = false;
+  translationFinished = false;
+  originalTextEl.textContent = "";
+  translatedTextEl.textContent = "";
+  btnCopyOriginal.disabled = true;
+  btnCopyTranslation.disabled = true;
+  btnErrorAction.disabled = false;
+  btnErrorAction.onclick = null;
+  clearTimeout(originalCopyTimer);
+  clearTimeout(translationCopyTimer);
+  originalCopyTimer = undefined;
+  translationCopyTimer = undefined;
+  btnCopyTranslation.classList.remove("copied");
+  copyBtnText.textContent = currentAppLang === "en" ? "Copy Translation" : currentAppLang === "zh-TW" ? "複製譯文" : "复制译文";
+  btnCopyOriginal.textContent = currentAppLang === "en" ? "Copy" : currentAppLang === "zh-TW" ? "複製" : "复制";
+  btnCopyOriginal.title = currentAppLang === "en" ? "Copy Original Text" : currentAppLang === "zh-TW" ? "複製原文" : "复制原文";
+  btnCopyTranslation.title = currentAppLang === "en" ? "Copy Translated Text" : currentAppLang === "zh-TW" ? "複製譯文" : "复制译文";
+}
+
+function startRequest(requestId: number) {
+  if (requestId <= latestRequestId) return isCurrentRequest(requestId);
+  latestRequestId = requestId;
+  requestOpen = true;
+  resetResult();
+  showState("loading");
+  void loadI18n(requestId);
+  return true;
+}
+
+async function loadI18n(requestId: number) {
   try {
     const config = await invoke<any>("get_config");
+    if (!isCurrentRequest(requestId)) return;
     currentAppLang = config.app_language || "zh-CN";
     if (currentAppLang === "en") {
       if (headerTitleText) headerTitleText.textContent = "Side-by-Side Translation";
@@ -88,11 +142,11 @@ async function loadI18n() {
       if (btnCopyTranslation) btnCopyTranslation.title = "复制译文";
       if (loadingTextEl) loadingTextEl.textContent = "正在识别文字并翻译中...";
     }
+    if (rawOriginalText) updateOriginalDisplay();
   } catch (e) {
-    console.error("加载语言设置失败:", e);
+    if (isCurrentRequest(requestId)) console.error("加载语言设置失败:", e);
   }
 }
-loadI18n();
 
 // 字体无级缩放功能 (Ctrl + 滚轮 或 微调按钮)
 let zoomPercent = parseInt(localStorage.getItem("sniplingo_font_zoom") || "100", 10);
@@ -137,6 +191,8 @@ function showState(state: "loading" | "success" | "error") {
 
 // 渲染错误信息
 function renderError(err: ErrorPayload | any) {
+  translationFinished = true;
+  btnErrorAction.disabled = false;
   showState("error");
   const errType = err?.type || "NetworkError";
   const message = err?.message || (typeof err === "string" ? err : JSON.stringify(err));
@@ -148,7 +204,7 @@ function renderError(err: ErrorPayload | any) {
       : "选区内未发现可识别的文字内容，请重新划选包含字符的区域。";
     btnErrorAction.textContent = currentAppLang === "en" ? "OK" : "知道了";
     btnErrorAction.onclick = async () => {
-      await invoke("close_result_window");
+      await closeResult();
     };
   } else if (errType === "MissingApiKey") {
     errorTitle.textContent = currentAppLang === "en" ? "API Key Missing" : "尚未配置 API Key";
@@ -161,19 +217,13 @@ function renderError(err: ErrorPayload | any) {
     errorTitle.textContent = currentAppLang === "en" ? "Network Connection Failed" : "网络连接失败";
     errorDesc.textContent = message || (currentAppLang === "en" ? "Unable to connect to translation API, please check network or proxy." : "无法连接至翻译接口，请检查您的网络连接或代理配置。");
     btnErrorAction.textContent = currentAppLang === "en" ? "Retry" : "重试翻译";
-    btnErrorAction.onclick = async () => {
-      if (currentOriginalText) {
-        await executeRetry(currentOriginalText);
-      } else if (lastRect) {
-        await executeTranslation(lastRect);
-      }
-    };
+    btnErrorAction.onclick = retryTranslation;
   } else {
     errorTitle.textContent = currentAppLang === "en" ? "Error Occurred" : "处理异常";
     errorDesc.textContent = message || (currentAppLang === "en" ? "An unknown error occurred during image processing." : "图像处理发生未知异常。");
     btnErrorAction.textContent = currentAppLang === "en" ? "Close" : "关闭";
     btnErrorAction.onclick = async () => {
-      await invoke("close_result_window");
+      await closeResult();
     };
   }
 }
@@ -198,6 +248,7 @@ function updateOriginalDisplay() {
       btnToggleBreaks.title = currentAppLang === "en" ? "Currently merged, click to preserve line breaks" : "当前为合并段落，点击切换为逐行换行";
     }
   }
+  btnCopyOriginal.disabled = !requestOpen || !currentOriginalText;
 }
 
 btnToggleBreaks?.addEventListener("click", () => {
@@ -205,107 +256,170 @@ btnToggleBreaks?.addEventListener("click", () => {
   updateOriginalDisplay();
 });
 
-// 执行选区翻译
-async function executeTranslation(rect: SelectionRect) {
-  lastRect = rect;
-  showState("loading");
-
-  try {
-    const res = await invoke<TranslationPayload>("translate_selection", { rect });
-    rawOriginalText = res.original_text;
-    isPreserveBreaks = rawOriginalText.includes("\n");
-    updateOriginalDisplay();
-
-    currentTranslatedText = res.translated_text;
-    translatedTextEl.textContent = res.translated_text;
-    showState("success");
-  } catch (err: any) {
-    renderError(err);
-  }
-}
-
-// 原文重试翻译
-async function executeRetry(text: string) {
-  showState("loading");
-  try {
-    const res = await invoke<TranslationPayload>("retry_translate", { originalText: text });
-    currentTranslatedText = res.translated_text;
-    translatedTextEl.textContent = res.translated_text;
-    showState("success");
-  } catch (err: any) {
-    renderError(err);
-  }
-}
-
-// 监听来自后端的 OCR 渐进式就绪通知
-listen<string>("ocr-ready", (event) => {
-  rawOriginalText = event.payload;
-  isPreserveBreaks = rawOriginalText.includes("\n");
+// 选区返回值与贴图事件共用结果呈现，旧请求不能覆盖新窗口。
+function renderTranslation(res: TranslationPayload) {
+  if (!isCurrentRequest(res.request_id)) return;
+  translationFinished = true;
+  if (!rawOriginalText) isPreserveBreaks = res.original_text.includes("\n");
+  rawOriginalText = res.original_text;
   updateOriginalDisplay();
+  currentTranslatedText = res.translated_text;
+  translatedTextEl.textContent = res.translated_text;
+  btnCopyTranslation.disabled = !currentTranslatedText;
+  showState("success");
+}
 
-  // 切换为结构视图，原文立即呈现
+async function executeTranslation(request: SelectionRequest) {
+  if (!startRequest(request.request_id)) return;
+  lastRect = request.rect;
+  lastCaptureId = request.capture_id;
+  try {
+    const res = await invoke<TranslationPayload>("translate_selection", {
+      rect: request.rect,
+      captureId: request.capture_id,
+      requestId: request.request_id,
+    });
+    if (isCurrentRequest(request.request_id)) renderTranslation(res);
+  } catch (err: any) {
+    if (isCurrentRequest(request.request_id)) renderError(err);
+  }
+}
+
+async function retryTranslation() {
+  if (!requestOpen) return;
+  const text = rawOriginalText;
+  const preserveBreaks = isPreserveBreaks;
+  const rect = lastRect;
+  const captureId = lastCaptureId;
+  if (!text && (!rect || captureId === null)) return;
+  let requestId = latestRequestId;
+  const closing = closeGeneration;
+  btnErrorAction.disabled = true;
+  showState("loading");
+  try {
+    requestId = await invoke<number>("show_result_window", text ? {} : { captureId });
+    if (closing !== closeGeneration) {
+      if (requestId >= latestRequestId) {
+        latestRequestId = requestId;
+        requestOpen = false;
+        resetResult();
+      }
+      await invoke("close_result_window", { requestId });
+      return;
+    }
+    if (!startRequest(requestId)) return;
+    if (text) {
+      rawOriginalText = text;
+      isPreserveBreaks = preserveBreaks;
+      updateOriginalDisplay();
+      const res = await invoke<TranslationPayload>("retry_translate", { originalText: text, requestId });
+      if (isCurrentRequest(requestId)) renderTranslation(res);
+    } else if (rect && captureId !== null) {
+      await executeTranslation({ request_id: requestId, capture_id: captureId, rect });
+    }
+  } catch (err: any) {
+    if (isCurrentRequest(requestId)) renderError(err);
+  }
+}
+
+listen<{ request_id: number }>("translation-started", (event) => {
+  startRequest(event.payload.request_id);
+});
+
+listen<number>("translation-closed", (event) => {
+  if (event.payload < latestRequestId) return;
+  latestRequestId = event.payload;
+  closeGeneration++;
+  requestOpen = false;
+  resetResult();
+});
+
+// OCR 原文先呈现，译文到齐前不可复制；迟到的 OCR 事件不能盖掉最终结果。
+listen<{ request_id: number; text: string }>("ocr-ready", (event) => {
+  if (!isCurrentRequest(event.payload.request_id)) return;
+  if (translationFinished && currentOriginalText) return;
+  if (!rawOriginalText) isPreserveBreaks = event.payload.text.includes("\n");
+  rawOriginalText = event.payload.text;
+  updateOriginalDisplay();
+  // 错误可能先于 OCR 事件抵达：补存重试原文，但不覆盖错误界面。
+  if (translationFinished) return;
   showState("success");
   const translatingMsg = currentAppLang === "en" ? "Translating..." : "翻译中...";
   translatedTextEl.innerHTML = `<span class="translation-skeleton"><span class="mini-spinner"></span> ${translatingMsg}</span>`;
 });
 
-// 监听来自 overlay 的翻译请求
-listen<SelectionRect>("start-translate-flow", async (event) => {
+listen<SelectionRequest>("start-translate-flow", async (event) => {
   await executeTranslation(event.payload);
 });
 
-// 监听来自贴图右键翻译的异步结果
 listen<TranslationPayload>("translation-result", (event) => {
-  rawOriginalText = event.payload.original_text;
-  isPreserveBreaks = rawOriginalText.includes("\n");
-  updateOriginalDisplay();
-
-  currentTranslatedText = event.payload.translated_text;
-  translatedTextEl.textContent = event.payload.translated_text;
-  showState("success");
+  renderTranslation(event.payload);
 });
 
-listen<ErrorPayload>("translation-error", (event) => {
-  renderError(event.payload);
+listen<{ request_id: number; error: ErrorPayload }>("translation-error", (event) => {
+  if (isCurrentRequest(event.payload.request_id)) renderError(event.payload.error);
 });
 
-// 复制译文
+// 复制反馈只属于发起时的请求，失败不再显示“已复制”。
 btnCopyTranslation.addEventListener("click", async () => {
-  if (!currentTranslatedText) return;
+  if (!requestOpen || !currentTranslatedText) return;
+  const requestId = latestRequestId;
+  clearTimeout(translationCopyTimer);
   try {
     await navigator.clipboard.writeText(currentTranslatedText);
-  } catch {
-    // 后备方案
-  }
-  btnCopyTranslation.classList.add("copied");
-  copyBtnText.textContent = currentAppLang === "en" ? "Copied" : "已复制";
-  setTimeout(() => {
+    if (!isCurrentRequest(requestId)) return;
+    btnCopyTranslation.classList.add("copied");
+    btnCopyTranslation.title = currentAppLang === "en" ? "Copy Translated Text" : currentAppLang === "zh-TW" ? "複製譯文" : "复制译文";
+    copyBtnText.textContent = currentAppLang === "en" ? "Copied" : currentAppLang === "zh-TW" ? "已複製" : "已复制";
+    translationCopyTimer = window.setTimeout(() => {
+      if (!isCurrentRequest(requestId)) return;
+      btnCopyTranslation.classList.remove("copied");
+      copyBtnText.textContent = currentAppLang === "en" ? "Copy Translation" : currentAppLang === "zh-TW" ? "複製譯文" : "复制译文";
+    }, 1800);
+  } catch (err) {
+    if (!isCurrentRequest(requestId)) return;
     btnCopyTranslation.classList.remove("copied");
-    copyBtnText.textContent = currentAppLang === "en" ? "Copy Translation" : currentAppLang === "zh-TW" ? "複製譯文" : "复制译文";
-  }, 1800);
+    copyBtnText.textContent = currentAppLang === "en" ? "Copy failed" : currentAppLang === "zh-TW" ? "複製失敗" : "复制失败";
+    btnCopyTranslation.title = `${copyBtnText.textContent}: ${err}`;
+  }
 });
 
-// 复制原文
 btnCopyOriginal.addEventListener("click", async () => {
-  if (!currentOriginalText) return;
+  if (!requestOpen || !currentOriginalText) return;
+  const requestId = latestRequestId;
+  clearTimeout(originalCopyTimer);
   try {
     await navigator.clipboard.writeText(currentOriginalText);
-  } catch {
-    // 后备方案
+    if (!isCurrentRequest(requestId)) return;
+    btnCopyOriginal.title = currentAppLang === "en" ? "Copy Original Text" : currentAppLang === "zh-TW" ? "複製原文" : "复制原文";
+    btnCopyOriginal.textContent = currentAppLang === "en" ? "Copied" : currentAppLang === "zh-TW" ? "已複製" : "已复制";
+    originalCopyTimer = window.setTimeout(() => {
+      if (!isCurrentRequest(requestId)) return;
+      btnCopyOriginal.textContent = currentAppLang === "en" ? "Copy" : currentAppLang === "zh-TW" ? "複製" : "复制";
+    }, 1800);
+  } catch (err) {
+    if (!isCurrentRequest(requestId)) return;
+    btnCopyOriginal.textContent = currentAppLang === "en" ? "Copy failed" : currentAppLang === "zh-TW" ? "複製失敗" : "复制失败";
+    btnCopyOriginal.title = `${btnCopyOriginal.textContent}: ${err}`;
   }
-  btnCopyOriginal.textContent = currentAppLang === "en" ? "Copied" : "已复制";
-  setTimeout(() => {
-    btnCopyOriginal.textContent = currentAppLang === "en" ? "Copy" : currentAppLang === "zh-TW" ? "複製" : "复制";
-  }, 1800);
 });
 
-// 关闭窗口
-btnClose.addEventListener("click", async () => {
-  await invoke("close_result_window");
-});
+async function closeResult() {
+  const requestId = latestRequestId;
+  if (!requestId) return;
+  closeGeneration++;
+  requestOpen = false;
+  resetResult();
+  try {
+    await invoke("close_result_window", { requestId });
+  } catch (err) {
+    if (latestRequestId === requestId) {
+      renderError({ type: "CaptureFailed", message: String(err) });
+    }
+  }
+}
 
+btnClose.addEventListener("click", closeResult);
 window.addEventListener("keydown", async (e) => {
-  if (e.key === "Escape") {
-    await invoke("close_result_window");
-  }
+  if (e.key === "Escape") await closeResult();
 });

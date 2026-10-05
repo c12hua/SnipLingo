@@ -8,7 +8,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-blue.svg?style=flat-square)](https://www.microsoft.com/windows)
 [![Tauri](https://img.shields.io/badge/Tauri-v2-orange.svg?style=flat-square&logo=tauri)](https://tauri.app/)
-[![Rust](https://img.shields.io/badge/Rust-1.77%2B-red.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.88%2B-red.svg?style=flat-square&logo=rust)](https://www.rust-lang.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg?style=flat-square&logo=typescript)](https://www.typescriptlang.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg?style=flat-square)](LICENSE)
 
@@ -83,7 +83,7 @@ SnipLingo/
 | :--- | :--- | :--- |
 | **应用框架** | **Tauri v2** | 使用 Windows WebView2 构建桌面应用。 |
 | **前端** | **TypeScript + Vite** | 以原生 DOM 和 CSS 实现多页面界面。 |
-| **后端** | **Rust 1.77+** | 处理截图、OCR、系统调用及应用逻辑。 |
+| **后端** | **Rust 1.88+** | 处理截图、OCR、系统调用及应用逻辑。 |
 | **屏幕捕获** | **xcap** | 获取显示器信息并捕获屏幕图像。 |
 | **文字识别** | **Windows.Media.Ocr / PP-OCRv6** | 提供系统原生及 PaddleOCR 识别引擎。 |
 | **网络请求** | **Reqwest + Tokio** | 发送翻译请求并复用 HTTP 连接。 |
@@ -95,8 +95,8 @@ SnipLingo/
 ### 环境要求
 
 - **操作系统**：Windows 10 / 11（64 位）
-- **Node.js**：`>= 18.0.0`
-- **Rust 工具链**：`>= 1.77.2`，推荐 `stable-x86_64-pc-windows-msvc`
+- **Node.js**：`^20.19.0 || >=22.12.0`（Vite 8 的运行要求）
+- **Rust 工具链**：`>= 1.88.0`（当前锁定依赖的最低要求），推荐 `stable-x86_64-pc-windows-msvc`
 - **C++ 构建工具**：Visual Studio 2022 Build Tools，并安装“使用 C++ 的桌面开发”工作负载
 - **WebView2**：Windows 10 / 11 通常已包含运行时
 
@@ -122,6 +122,12 @@ npm run tauri dev
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+前端异步隔离与资源清理自检（Node.js 22.13+，不启动窗口或请求翻译服务）：
+
+```powershell
+node scripts/check-ui.mjs
+```
+
 ### 编译打包
 
 - **完整打包（同时生成安装包与便携包）**：
@@ -138,8 +144,8 @@ cargo test --manifest-path src-tauri/Cargo.toml
   ```
 
 构建产物位于：
-- **安装包**：`src-tauri/target/release/bundle/nsis/SnipLingo_0.1.1_x64-setup.exe`
-- **便携包**：`src-tauri/target/release/bundle/SnipLingo_0.1.1_portable.zip`（已包含完整离线模型，解压即用）
+- **安装包**：`src-tauri/target/release/bundle/nsis/SnipLingo_0.1.2_x64-setup.exe`
+- **便携包**：`src-tauri/target/release/bundle/SnipLingo_0.1.2_portable.zip`（已包含完整离线模型，解压即用）
 
 ---
 

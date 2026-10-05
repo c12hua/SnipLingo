@@ -13,7 +13,6 @@ static PADDLE_INIT_MUTEX: Mutex<()> = Mutex::new(());
 pub struct PaddleOcrEngine {
     version: PpOcrVersion,
     enhance_contrast: bool,
-    preserve_line_breaks: bool,
 }
 
 impl PaddleOcrEngine {
@@ -21,15 +20,13 @@ impl PaddleOcrEngine {
         Self {
             version: PpOcrVersion::V6Tiny,
             enhance_contrast: true,
-            preserve_line_breaks: false,
         }
     }
 
-    pub fn with_options(version: PpOcrVersion, enhance_contrast: bool, preserve_line_breaks: bool) -> Self {
+    pub fn with_options(version: PpOcrVersion, enhance_contrast: bool) -> Self {
         Self {
             version,
             enhance_contrast,
-            preserve_line_breaks,
         }
     }
 
@@ -376,38 +373,20 @@ impl OcrEngine for PaddleOcrEngine {
         ).map_err(|e| SnipLingoError::OcrFailed(format!("PaddleOCR 文本识别失败: {}", e)))?;
         let infer_ms = t_infer.elapsed().as_millis();
 
-        // 3. 几何排序（自然阅读顺序：由上至下，同水平行由左至右）
-        let mut raw_blocks = result.text_blocks;
-        raw_blocks.sort_by(|a, b| {
-            let a_y = a.box_points.iter().map(|p| p.y).min().unwrap_or(0);
-            let b_y = b.box_points.iter().map(|p| p.y).min().unwrap_or(0);
-            let a_x = a.box_points.iter().map(|p| p.x).min().unwrap_or(0);
-            let b_x = b.box_points.iter().map(|p| p.x).min().unwrap_or(0);
-
-            // 若垂直坐标差在 12 像素以内，视为同一行，按水平坐标从左向右排
-            if (a_y as i64 - b_y as i64).abs() < 12 {
-                a_x.cmp(&b_x)
-            } else {
-                a_y.cmp(&b_y)
-            }
-        });
-
         let mut blocks = Vec::new();
-        let mut valid_texts = Vec::new();
 
-        for b in raw_blocks {
+        for b in result.text_blocks {
             if b.text_score < 0.5 || b.text.trim().is_empty() {
                 continue;
             }
 
-            let min_x = b.box_points.iter().map(|p| p.x).min().unwrap_or(0).max(0) as u32;
-            let min_y = b.box_points.iter().map(|p| p.y).min().unwrap_or(0).max(0) as u32;
-            let max_x = b.box_points.iter().map(|p| p.x).max().unwrap_or(0).max(0) as u32;
-            let max_y = b.box_points.iter().map(|p| p.y).max().unwrap_or(0).max(0) as u32;
+            let min_x = b.box_points.iter().map(|p| p.x).min().unwrap_or(0);
+            let min_y = b.box_points.iter().map(|p| p.y).min().unwrap_or(0);
+            let max_x = b.box_points.iter().map(|p| p.x).max().unwrap_or(0);
+            let max_y = b.box_points.iter().map(|p| p.y).max().unwrap_or(0);
             let width = max_x.saturating_sub(min_x).max(1);
             let height = max_y.saturating_sub(min_y).max(1);
 
-            valid_texts.push(b.text.clone());
             blocks.push(OcrLineBlock {
                 text: b.text,
                 rect: OcrRect { x: min_x, y: min_y, width, height },
@@ -415,13 +394,15 @@ impl OcrEngine for PaddleOcrEngine {
             });
         }
 
-        let raw_text = valid_texts.join("\n");
+        // 3. 几何排序（由上至下，同行由左至右），复用确定的全序分组。
+        super::sort_lines_reading_order(&mut blocks, 12);
+        let raw_text = blocks.iter().map(|block| block.text.as_str()).collect::<Vec<_>>().join("\n");
         if raw_text.trim().is_empty() {
             return Err(SnipLingoError::NoTextDetected);
         }
 
-        // 4. 应用针对中文优化的排版清洁器
-        let cleaned = clean_ocr_text_with_options(&raw_text, self.preserve_line_breaks);
+        // 原文保留行边界；翻译输入的合并由共享请求入口处理。
+        let cleaned = clean_ocr_text_with_options(&raw_text, true);
 
         log::debug!(
             "[性能] PaddleOCR 识别完成 (图片: {}x{}): 预处理 {}ms, 推理 {}ms, 总耗时 {}ms",

@@ -7,11 +7,15 @@ use crate::core::pin::{
 };
 
 #[tauri::command]
-pub async fn pin_screenshot(app: AppHandle, rect: SelectionRect) -> Result<String, String> {
+pub async fn pin_screenshot(app: AppHandle, rect: SelectionRect, capture_id: u64) -> Result<String, String> {
     // 必须是 async 命令：窗口创建只能在事件循环外发起（异步投递给主线程）。
     // sync 命令会在主线程的 IPC 分发中【内联重入】创建 WebView2 窗口，
     // 卡死整个 IPC 通道——表现为贴图后 ESC/取帧等一切交互永久失效，屏幕被遮罩锁死。
-    pin_selection_image(&app, &rect)
+    let result = pin_selection_image(&app, &rect, capture_id).await;
+    if result.is_err() {
+        super::save_cmd::restore_capture_window(&app, capture_id);
+    }
+    result
 }
 
 #[tauri::command]

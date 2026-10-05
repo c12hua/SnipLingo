@@ -20,6 +20,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "section.actions": "选区动作快捷键",
     "label.action_copy": "复制",
     "label.action_ocr": "获取文本",
+    "label.action_qrcode": "识别二维码",
     "label.action_translate": "翻译",
     "label.action_pin": "钉住选区",
 
@@ -65,6 +66,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "label.ocr_lang": "优先识别语言",
     "label.preserve_breaks": "保持代码与排版换行",
     "label.enhance_contrast": "暗色主题与低对比度增强",
+    "section.qrcode": "二维码识别",
+    "label.qrcode_mode": "识别结果处理",
+    "qrcode.mode_copy": "复制内容到剪贴板",
+    "qrcode.mode_open": "网址用默认浏览器打开",
 
     "btn.reset_default": "恢复默认设置",
     "status.saved": "已保存设置",
@@ -90,6 +95,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "section.actions": "選區動作快捷鍵",
     "label.action_copy": "複製",
     "label.action_ocr": "獲取文字",
+    "label.action_qrcode": "識別二維碼",
     "label.action_translate": "翻譯",
     "label.action_pin": "釘住選區",
 
@@ -135,6 +141,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "label.ocr_lang": "優先辨識語言",
     "label.preserve_breaks": "保持代碼與排版換行",
     "label.enhance_contrast": "暗色主題與低對比度增強",
+    "section.qrcode": "二維碼識別",
+    "label.qrcode_mode": "識別結果處理",
+    "qrcode.mode_copy": "複製內容到剪貼簿",
+    "qrcode.mode_open": "網址用預設瀏覽器開啟",
 
     "btn.reset_default": "恢復預設設定",
     "status.saved": "已保存設定",
@@ -160,6 +170,7 @@ export const translations: Record<Language, Record<string, string>> = {
     "section.actions": "Action Shortcuts",
     "label.action_copy": "Copy",
     "label.action_ocr": "Extract Text",
+    "label.action_qrcode": "Recognize QR Code",
     "label.action_translate": "Translate",
     "label.action_pin": "Pin Selection",
 
@@ -205,6 +216,10 @@ export const translations: Record<Language, Record<string, string>> = {
     "label.ocr_lang": "Primary Language",
     "label.preserve_breaks": "Preserve Line Breaks",
     "label.enhance_contrast": "Dark Theme & Low Contrast Boost",
+    "section.qrcode": "QR Code Recognition",
+    "label.qrcode_mode": "Result Action",
+    "qrcode.mode_copy": "Copy content to clipboard",
+    "qrcode.mode_open": "Open URLs in default browser",
 
     "btn.reset_default": "Reset Defaults",
     "status.saved": "Settings Saved",

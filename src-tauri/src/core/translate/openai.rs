@@ -47,6 +47,19 @@ fn get_lang_display_name(code: &str) -> &'static str {
     }
 }
 
+pub(super) fn endpoint(base_url: Option<&str>) -> String {
+    let raw_base = base_url.unwrap_or("https://api.openai.com/v1").trim().trim_end_matches('/');
+    if raw_base.ends_with("/chat/completions") {
+        raw_base.to_string()
+    } else {
+        format!("{}/chat/completions", raw_base)
+    }
+}
+
+pub(super) fn model_name(model: Option<&str>) -> &str {
+    model.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("gpt-4o-mini")
+}
+
 pub async fn translate_openai(
     api_key: &str,
     base_url: Option<&str>,
@@ -62,15 +75,8 @@ pub async fn translate_openai(
         ));
     }
 
-    let raw_base = base_url.unwrap_or("https://api.openai.com/v1").trim().trim_end_matches('/');
-    let endpoint = if raw_base.ends_with("/chat/completions") {
-        raw_base.to_string()
-    } else {
-        format!("{}/chat/completions", raw_base)
-    };
-
-    let model_name = model.unwrap_or("gpt-4o-mini").trim();
-    let model_name = if model_name.is_empty() { "gpt-4o-mini" } else { model_name };
+    let endpoint = endpoint(base_url);
+    let model_name = model_name(model);
 
     let mut headers = HeaderMap::new();
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));

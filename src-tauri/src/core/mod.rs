@@ -4,6 +4,7 @@ pub mod config;
 pub mod error;
 pub mod hotkey;
 pub mod ocr;
+pub mod qrcode;
 pub mod translate;
 pub mod tray;
 pub mod pin;
